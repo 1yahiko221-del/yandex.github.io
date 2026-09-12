@@ -387,4 +387,21 @@ volumeSlider.addEventListener("input", () => {
 });
 
 function toggleMute() {
-    if (audio
+    if (audio.volume > 0) {
+        lastVolume = audio.volume;
+        audio.volume = 0;
+        volumeSlider.value = 0;
+    } else {
+        audio.volume = lastVolume;
+        volumeSlider.value = lastVolume;
+    }
+}
+
+// --- Enter для поиска ---
+document.getElementById("searchInput").addEventListener("keydown", (e) => {
+    if (e.key === "Enter") search();
+});
+
+// --- Инициализация ---
+renderLibrary();
+connectWS();
