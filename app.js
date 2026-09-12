@@ -133,6 +133,8 @@ async function search() {
     const query = document.getElementById("searchInput").value.trim();
     if (!query) return;
 
+    document.getElementById("results").innerHTML = `<div class="empty"><p>Поиск...</p></div>`;
+
     try {
         const res = await fetch(`${API_BASE}/api/search`, {
             method: "POST",
@@ -163,7 +165,7 @@ function renderTracks(container, tracks, options = {}) {
         if (i === localCurrentIndex && showIndex) div.classList.add("current");
 
         const cover = track.cover
-            ? `<img class="track-cover" src="${track.cover}" alt="" loading="lazy">`
+            ? `<img class="track-cover" src="${track.cover}" alt="" loading="lazy" onerror="this.style.display='none'">`
             : `<div class="track-cover"></div>`;
 
         let titleHtml = showIndex ? `${i + 1}. ${track.title}` : track.title;
