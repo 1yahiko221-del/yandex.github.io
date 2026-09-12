@@ -15,13 +15,16 @@
         #results div:hover { background: #222; }
         #player { margin-top: 20px; }
         #status { color: #888; font-size: 14px; margin-top: 16px; }
+        #roomInfo { color: #1db954; font-size: 14px; margin-top: 8px; }
         audio { width: 100%; margin-top: 8px; }
     </style>
 </head>
 <body>
     <h1>🎵 Sync Music</h1>
 
-    <div>
+    <div id="roomInfo">Комната: <span id="roomIdDisplay"></span> <button onclick="copyRoomLink()" style="font-size: 12px; padding: 4px 8px;">Копировать ссылку</button></div>
+
+    <div style="margin-top: 16px;">
         <input id="searchInput" placeholder="Поиск трека..." style="width: 65%;">
         <button onclick="search()">Найти</button>
     </div>
@@ -36,20 +39,33 @@
     <div id="status">Подключение...</div>
 
     <script>
-        // ⚠️ ЗАМЕНИ НА URL СВОЕГО БЭКЕНДА НА RENDER (без слэша в конце)
         const API_BASE = "https://yandex-sync-backend.onrender.com";
-        const WS_URL = API_BASE.replace("https://", "wss://").replace("http://", "ws://") + "/ws";
+        
+        // Получаем ID комнаты из URL или генерируем новый
+        const urlParams = new URLSearchParams(window.location.search);
+        let roomId = urlParams.get('room');
+        if (!roomId) {
+            roomId = Math.random().toString(36).substring(2, 8).toUpperCase();
+            // Обновляем URL без перезагрузки
+            window.history.replaceState({}, '', `?room=${roomId}`);
+        }
+        document.getElementById('roomIdDisplay').textContent = roomId;
+
+        const WS_URL = API_BASE.replace("https://", "wss://").replace("http://", "ws://") + `/ws/${roomId}`;
 
         let ws = null;
         let isSyncing = false;
         let reconnectTimer = null;
+
+        // Уникальный ID для этого клиента, чтобы игнорировать своё эхо
+        const clientId = Math.random().toString(36).substring(2, 10);
 
         function connectWS() {
             if (ws && ws.readyState === WebSocket.OPEN) return;
             ws = new WebSocket(WS_URL);
 
             ws.onopen = () => {
-                document.getElementById("status").textContent = "🟢 Подключено";
+                document.getElementById("status").textContent = "🟢 Подключено к комнате";
                 if (reconnectTimer) { clearTimeout(reconnectTimer); reconnectTimer = null; }
             };
 
@@ -66,6 +82,10 @@
 
             ws.onmessage = (event) => {
                 const msg = JSON.parse(event.data);
+                
+                // Игнорируем свои же сообщения
+                if (msg.sender === clientId) return;
+
                 const audio = document.getElementById("audio");
 
                 if (msg.type === "track") {
@@ -88,8 +108,18 @@
 
         function send(msg) {
             if (ws && ws.readyState === WebSocket.OPEN) {
+                msg.sender = clientId; // Добавляем свой ID
                 ws.send(JSON.stringify(msg));
             }
+        }
+
+        function copyRoomLink() {
+            const link = `${window.location.origin}${window.location.pathname}?room=${roomId}`;
+            navigator.clipboard.writeText(link).then(() => {
+                alert("Ссылка скопирована! Отправь другу.");
+            }).catch(() => {
+                prompt("Скопируй ссылку вручную:", link);
+            });
         }
 
         async function search() {
@@ -136,7 +166,6 @@
 
                 if (!res.ok) {
                     const errorData = await res.json().catch(() => ({}));
-                    console.error("Ответ сервера:", res.status, errorData);
                     const detail = errorData.detail ? JSON.stringify(errorData.detail) : "Неизвестная ошибка";
                     throw new Error(`HTTP ${res.status}: ${detail}`);
                 }
