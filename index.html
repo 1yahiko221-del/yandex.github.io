@@ -40,7 +40,21 @@
         #player.visible { display: block; }
         .player-header { display: flex; align-items: center; gap: 16px; margin-bottom: 16px; }
         #playerCover { width: 64px; height: 64px; border-radius: 8px; object-fit: cover; background: #333; flex-shrink: 0; }
+        .player-info { flex: 1; min-width: 0; }
         #nowPlaying { font-size: 16px; font-weight: bold; color: #fff; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+        #playerArtist { font-size: 13px; color: #888; margin-top: 2px; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+        .player-like {
+            background: transparent;
+            color: #888;
+            font-size: 24px;
+            padding: 4px 8px;
+            border: none;
+            cursor: pointer;
+            flex-shrink: 0;
+        }
+        .player-like:hover { color: #1db954; background: transparent; }
+        .player-like.liked { color: #e74c3c; }
+
         .progress-container {
             width: 100%;
             height: 6px;
@@ -165,7 +179,11 @@
     <div id="player">
         <div class="player-header">
             <img id="playerCover" src="" alt="">
-            <div id="nowPlaying">—</div>
+            <div class="player-info">
+                <div id="nowPlaying">—</div>
+                <div id="playerArtist"></div>
+            </div>
+            <button class="player-like" id="playerLikeBtn" onclick="likeCurrentTrack()" title="В библиотеку">🤍</button>
         </div>
         <div class="progress-container" id="progressContainer">
             <div class="progress-bar" id="progressBar"></div>
@@ -207,6 +225,7 @@
         let localQueue = [];
         let localCurrentIndex = -1;
         let lastVolume = 1;
+        let currentTrack = null;
 
         const clientId = Math.random().toString(36).substring(2, 10);
 
@@ -241,6 +260,28 @@
             saveLibrary(lib);
             renderLibrary();
             renderSearchResults(lastSearchResults);
+            updatePlayerLike();
+        }
+
+        function likeCurrentTrack() {
+            if (!currentTrack) return;
+            toggleLike(currentTrack);
+        }
+
+        function updatePlayerLike() {
+            const btn = document.getElementById("playerLikeBtn");
+            if (!currentTrack) {
+                btn.textContent = "🤍";
+                btn.classList.remove("liked");
+                return;
+            }
+            if (isLiked(currentTrack.id)) {
+                btn.textContent = "❤️";
+                btn.classList.add("liked");
+            } else {
+                btn.textContent = "🤍";
+                btn.classList.remove("liked");
+            }
         }
 
         function renderLibrary() {
@@ -421,7 +462,17 @@
             const audio = document.getElementById("audio");
             audio.src = track.url;
             audio.currentTime = 0;
-            document.getElementById("nowPlaying").textContent = `${track.artist} — ${track.title}`;
+
+            currentTrack = {
+                id: track.id,
+                title: track.title,
+                artist: track.artist,
+                cover: track.cover || '',
+            };
+
+            document.getElementById("nowPlaying").textContent = track.title;
+            document.getElementById("playerArtist").textContent = track.artist;
+
             const coverEl = document.getElementById("playerCover");
             if (track.cover) {
                 coverEl.src = track.cover;
@@ -429,9 +480,12 @@
             } else {
                 coverEl.style.display = "none";
             }
+
             document.getElementById("player").classList.add("visible");
             localCurrentIndex = index;
             renderQueue();
+            updatePlayerLike();
+
             isSyncing = true;
             audio.play().catch(err => console.warn("Autoplay blocked:", err)).finally(() => { isSyncing = false; });
         }
