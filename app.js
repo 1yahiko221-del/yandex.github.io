@@ -228,7 +228,6 @@ function renderTracks(container, tracks, options = {}) {
 
         div.appendChild(actions);
 
-        // Обработчик кликов и drag через единый pointer-механизм
         setupInteractions(div, i, {
             draggable,
             onClick: () => {
@@ -242,8 +241,6 @@ function renderTracks(container, tracks, options = {}) {
 }
 
 // --- Единый обработчик: клик vs drag ---
-// ВАЖНО: drag стартует ТОЛЬКО за ручку (.track-drag-handle) — и на ПК, и на тач.
-// Клик по телу трека / кнопкам больше не превращается в перетаскивание.
 function setupInteractions(el, index, { draggable, onClick }) {
     let startX = 0;
     let startY = 0;
@@ -251,13 +248,10 @@ function setupInteractions(el, index, { draggable, onClick }) {
     let moved = false;
     let pointerId = null;
 
-    const CLICK_THRESHOLD = 10; // px — если палец сдвинулся меньше, это клик
+    const CLICK_THRESHOLD = 10;
 
     const onPointerDown = (e) => {
-        // ПКМ или средняя кнопка — игнорируем
         if (e.pointerType === "mouse" && e.button !== 0) return;
-
-        // Клик по кнопке (лайк / удалить / добавить) — не перехватываем
         if (e.target.closest("button")) return;
 
         startX = e.clientX;
@@ -266,7 +260,6 @@ function setupInteractions(el, index, { draggable, onClick }) {
         dragging = false;
         pointerId = e.pointerId;
 
-        // Drag возможен только за ручку
         const isHandleStart = !!e.target.closest('[data-handle="1"]');
         if (draggable && isHandleStart) {
             dragging = true;
@@ -287,7 +280,6 @@ function setupInteractions(el, index, { draggable, onClick }) {
         const dist = Math.sqrt(dx * dx + dy * dy);
 
         if (!dragging) {
-            // Просто отмечаем, что пользователь сдвинул палец — тогда это не клик
             if (dist > CLICK_THRESHOLD) moved = true;
             return;
         }
@@ -295,7 +287,6 @@ function setupInteractions(el, index, { draggable, onClick }) {
         e.preventDefault();
         moved = true;
 
-        // Подсветка цели
         const elemBelow = document.elementFromPoint(e.clientX, e.clientY);
         const trackBelow = elemBelow?.closest('.track');
         document.querySelectorAll('.track.drag-over').forEach(t => t.classList.remove('drag-over'));
@@ -312,7 +303,6 @@ function setupInteractions(el, index, { draggable, onClick }) {
         document.removeEventListener("pointercancel", onPointerUp);
 
         if (dragging) {
-            // Завершаем drag
             el.classList.remove("dragging");
             document.querySelectorAll('.track.drag-over').forEach(t => t.classList.remove('drag-over'));
 
@@ -326,7 +316,6 @@ function setupInteractions(el, index, { draggable, onClick }) {
                 }
             }
         } else if (!moved) {
-            // Это был клик — обрабатываем сами
             onClick();
         }
 
@@ -336,7 +325,6 @@ function setupInteractions(el, index, { draggable, onClick }) {
     };
 
     el.addEventListener("pointerdown", onPointerDown);
-    // Отключаем нативный drag у картинок
     el.addEventListener("dragstart", (e) => e.preventDefault());
 }
 
@@ -483,6 +471,16 @@ function formatTime(seconds) {
 
 const audio = document.getElementById("audio");
 
+// --- Загрузка сохранённой громкости (ДО всех остальных обработчиков) ---
+const savedVolume = localStorage.getItem("syncMusicVolume");
+if (savedVolume !== null) {
+    const v = parseFloat(savedVolume);
+    if (!isNaN(v) && v >= 0 && v <= 1) {
+        audio.volume = v;
+        lastVolume = v > 0 ? v : 1;
+    }
+}
+
 audio.addEventListener("timeupdate", () => {
     const percent = audio.duration ? (audio.currentTime / audio.duration) * 100 : 0;
     progressBar.style.width = `${percent}%`;
@@ -506,19 +504,31 @@ audio.addEventListener("ended", () => send({ type: "track_ended" }));
 
 // --- Громкость ---
 const volumeSlider = document.getElementById("volumeSlider");
+
+// Устанавливаем слайдер в сохранённое значение
+if (savedVolume !== null) {
+    volumeSlider.value = audio.volume;
+}
+
 volumeSlider.addEventListener("input", () => {
-    audio.volume = parseFloat(volumeSlider.value);
-    if (audio.volume > 0) lastVolume = audio.volume;
+    const v = parseFloat(volumeSlider.value);
+    audio.volume = v;
+    if (v > 0) lastVolume = v;
+    // Сохраняем в localStorage
+    localStorage.setItem("syncMusicVolume", String(v));
 });
+
 function toggleMute() {
     if (audio.volume > 0) {
         lastVolume = audio.volume;
         audio.volume = 0;
         volumeSlider.value = 0;
+        localStorage.setItem("syncMusicVolume", "0");
         showToast("🔇 Звук выключен");
     } else {
         audio.volume = lastVolume;
         volumeSlider.value = lastVolume;
+        localStorage.setItem("syncMusicVolume", String(lastVolume));
         showToast("🔊 Звук включён");
     }
 }
@@ -567,16 +577,23 @@ document.addEventListener("keydown", (e) => {
             e.preventDefault();
             toggleCollapse();
             break;
-        case "ArrowUp":
+        case "ArrowUp": {
             e.preventDefault();
-            audio.volume = Math.min(1, audio.volume + 0.1);
-            volumeSlider.value = audio.volume;
+            const v = Math.min(1, audio.volume + 0.1);
+            audio.volume = v;
+            volumeSlider.value = v;
+            if (v > 0) lastVolume = v;
+            localStorage.setItem("syncMusicVolume", String(v));
             break;
-        case "ArrowDown":
+        }
+        case "ArrowDown": {
             e.preventDefault();
-            audio.volume = Math.max(0, audio.volume - 0.1);
-            volumeSlider.value = audio.volume;
+            const v = Math.max(0, audio.volume - 0.1);
+            audio.volume = v;
+            volumeSlider.value = v;
+            localStorage.setItem("syncMusicVolume", String(v));
             break;
+        }
     }
 });
 
