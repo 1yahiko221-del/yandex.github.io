@@ -21,6 +21,45 @@ let lastSearchResults = [];
 
 const clientId = Math.random().toString(36).substring(2, 10);
 
+// --- Имя пользователя ---
+const NAME_KEY = 'syncMusicUserName';
+function getUserName() {
+    return localStorage.getItem(NAME_KEY) || '';
+}
+function setUserName(name) {
+    localStorage.setItem(NAME_KEY, name);
+    updateUserNameLabel();
+}
+function updateUserNameLabel() {
+    const el = document.getElementById('userNameLabel');
+    if (!el) return;
+    const name = getUserName();
+    el.textContent = name || 'Гость';
+    document.getElementById('userBtn').classList.toggle('has-name', !!name);
+}
+function editUserName() {
+    document.getElementById('nameInput').value = getUserName();
+    document.getElementById('nameModal').style.display = 'flex';
+    setTimeout(() => document.getElementById('nameInput').focus(), 50);
+}
+function closeNameModal() {
+    document.getElementById('nameModal').style.display = 'none';
+}
+function saveName() {
+    const val = document.getElementById('nameInput').value.trim();
+    if (!val) {
+        showToast("Введи имя");
+        return;
+    }
+    setUserName(val);
+    closeNameModal();
+    showToast(`👤 Привет, ${val}!`);
+    // Перерисуем очередь — у только что добавленных треков имя не изменится,
+    // но визуально это полезно, если пользователь поменял имя и хочет видеть
+    // актуальное состояние UI (сам список треков не переименовывается).
+    renderQueue();
+}
+
 // --- Тосты ---
 function showToast(text, duration = 2000) {
     const toast = document.getElementById('toast');
@@ -164,6 +203,7 @@ function renderTracks(container, tracks, options = {}) {
         showLike = false,
         showAdd = false,
         draggable = false,
+        showAddedBy = false,
     } = options;
 
     container.innerHTML = "";
@@ -186,7 +226,12 @@ function renderTracks(container, tracks, options = {}) {
             titleHtml = `<span class="eq"><span></span><span></span><span></span></span> ${titleHtml}`;
         }
 
-        const artist = track.artist + (track.duration ? ` · ${track.duration}с` : "");
+        let artist = track.artist + (track.duration ? ` · ${track.duration}с` : "");
+
+        // Строка «добавил: X» — только в очереди и только если есть данные
+        if (showAddedBy && track.added_by) {
+            artist += ` · <span class="added-by">добавил: ${escapeHtml(track.added_by)}</span>`;
+        }
 
         const handleHtml = draggable
             ? `<div class="track-drag-handle" data-handle="1">
@@ -228,7 +273,6 @@ function renderTracks(container, tracks, options = {}) {
 
         div.appendChild(actions);
 
-        // Обработчик кликов и drag через единый pointer-механизм
         setupInteractions(div, i, {
             draggable,
             onClick: () => {
@@ -241,9 +285,16 @@ function renderTracks(container, tracks, options = {}) {
     });
 }
 
+function escapeHtml(str) {
+    return String(str)
+        .replace(/&/g, "&amp;")
+        .replace(/</g, "&lt;")
+        .replace(/>/g, "&gt;")
+        .replace(/"/g, "&quot;")
+        .replace(/'/g, "&#039;");
+}
+
 // --- Единый обработчик: клик vs drag ---
-// ВАЖНО: drag стартует ТОЛЬКО за ручку (.track-drag-handle) — и на ПК, и на тач.
-// Клик по телу трека / кнопкам больше не превращается в перетаскивание.
 function setupInteractions(el, index, { draggable, onClick }) {
     let startX = 0;
     let startY = 0;
@@ -251,13 +302,10 @@ function setupInteractions(el, index, { draggable, onClick }) {
     let moved = false;
     let pointerId = null;
 
-    const CLICK_THRESHOLD = 10; // px — если палец сдвинулся меньше, это клик
+    const CLICK_THRESHOLD = 10;
 
     const onPointerDown = (e) => {
-        // ПКМ или средняя кнопка — игнорируем
         if (e.pointerType === "mouse" && e.button !== 0) return;
-
-        // Клик по кнопке (лайк / удалить / добавить) — не перехватываем
         if (e.target.closest("button")) return;
 
         startX = e.clientX;
@@ -266,7 +314,6 @@ function setupInteractions(el, index, { draggable, onClick }) {
         dragging = false;
         pointerId = e.pointerId;
 
-        // Drag возможен только за ручку
         const isHandleStart = !!e.target.closest('[data-handle="1"]');
         if (draggable && isHandleStart) {
             dragging = true;
@@ -287,7 +334,6 @@ function setupInteractions(el, index, { draggable, onClick }) {
         const dist = Math.sqrt(dx * dx + dy * dy);
 
         if (!dragging) {
-            // Просто отмечаем, что пользователь сдвинул палец — тогда это не клик
             if (dist > CLICK_THRESHOLD) moved = true;
             return;
         }
@@ -295,7 +341,6 @@ function setupInteractions(el, index, { draggable, onClick }) {
         e.preventDefault();
         moved = true;
 
-        // Подсветка цели
         const elemBelow = document.elementFromPoint(e.clientX, e.clientY);
         const trackBelow = elemBelow?.closest('.track');
         document.querySelectorAll('.track.drag-over').forEach(t => t.classList.remove('drag-over'));
@@ -312,7 +357,6 @@ function setupInteractions(el, index, { draggable, onClick }) {
         document.removeEventListener("pointercancel", onPointerUp);
 
         if (dragging) {
-            // Завершаем drag
             el.classList.remove("dragging");
             document.querySelectorAll('.track.drag-over').forEach(t => t.classList.remove('drag-over'));
 
@@ -326,7 +370,6 @@ function setupInteractions(el, index, { draggable, onClick }) {
                 }
             }
         } else if (!moved) {
-            // Это был клик — обрабатываем сами
             onClick();
         }
 
@@ -336,7 +379,6 @@ function setupInteractions(el, index, { draggable, onClick }) {
     };
 
     el.addEventListener("pointerdown", onPointerDown);
-    // Отключаем нативный drag у картинок
     el.addEventListener("dragstart", (e) => e.preventDefault());
 }
 
@@ -348,6 +390,7 @@ function renderQueue() {
         showIndex: true,
         showRemove: true,
         draggable: true,
+        showAddedBy: true,
     });
 }
 function renderLibrary() {
@@ -365,12 +408,20 @@ function renderLibrary() {
 }
 
 function addToQueue(track) {
+    const name = getUserName();
+    if (!name) {
+        // Спрашиваем имя один раз — потом оно уже сохранено
+        editUserName();
+        showToast("Сначала введи имя — потом добавляй треки");
+        return;
+    }
     send({
         type: "add_to_queue",
         track_id: String(track.id),
         title: track.title,
         artist: track.artist,
         cover: track.cover || "",
+        added_by: name,
     });
     showToast(`➕ Добавлено в очередь`);
 }
@@ -380,7 +431,22 @@ function addAllLibraryToQueue() {
         showToast("Библиотека пуста");
         return;
     }
-    lib.forEach(track => addToQueue(track));
+    const name = getUserName();
+    if (!name) {
+        editUserName();
+        showToast("Сначала введи имя");
+        return;
+    }
+    lib.forEach(track => {
+        send({
+            type: "add_to_queue",
+            track_id: String(track.id),
+            title: track.title,
+            artist: track.artist,
+            cover: track.cover || "",
+            added_by: name,
+        });
+    });
     showToast(`Добавлено треков: ${lib.length}`);
 }
 
@@ -462,7 +528,7 @@ function toggleCollapse() {
     player.classList.toggle("collapsed");
 }
 
-// --- Прогресс + seek через pointer events (клик и перетаскивание) ---
+// --- Прогресс + seek через pointer events ---
 const progressContainer = document.getElementById("progressContainer");
 const progressBar = document.getElementById("progressBar");
 const currentTimeEl = document.getElementById("currentTime");
@@ -481,7 +547,6 @@ function seekFromEvent(clientX) {
     percent = Math.max(0, Math.min(1, percent));
     const newTime = percent * audio.duration;
 
-    // Локально двигаем UI сразу — без ожидания сервера
     audio.currentTime = newTime;
     progressBar.style.width = `${percent * 100}%`;
     currentTimeEl.textContent = formatTime(newTime);
@@ -509,7 +574,6 @@ progressContainer.addEventListener("pointermove", (e) => {
 
 function endSeek(e) {
     if (!isSeeking || e.pointerId !== seekPointerId) return;
-    const audio = document.getElementById("audio");
     const newTime = seekFromEvent(e.clientX);
     isSeeking = false;
     seekPointerId = null;
@@ -531,7 +595,6 @@ function formatTime(seconds) {
 const audio = document.getElementById("audio");
 
 audio.addEventListener("timeupdate", () => {
-    // Пока пользователь тащит — не перебиваем его локальную позицию
     if (isSeeking) return;
     const percent = audio.duration ? (audio.currentTime / audio.duration) * 100 : 0;
     progressBar.style.width = `${percent}%`;
@@ -552,7 +615,6 @@ audio.addEventListener("pause", () => {
     if (!isSyncing) send({ type: "pause", time: audio.currentTime });
 });
 audio.addEventListener("ended", () => {
-    // Передаём expected_index — сервер проигнорирует, если уже переключился
     send({ type: "track_ended", expected_index: localCurrentIndex });
 });
 
@@ -587,6 +649,15 @@ document.addEventListener("click", (e) => {
 // --- Enter для поиска ---
 document.getElementById("searchInput").addEventListener("keydown", (e) => {
     if (e.key === "Enter") search();
+});
+
+// --- Enter / Escape в модалке имени ---
+document.getElementById("nameInput").addEventListener("keydown", (e) => {
+    if (e.key === "Enter") saveName();
+    if (e.key === "Escape") closeNameModal();
+});
+document.getElementById("nameModal").addEventListener("click", (e) => {
+    if (e.target.id === "nameModal") closeNameModal();
 });
 
 // --- Горячие клавиши ---
@@ -639,5 +710,13 @@ hint.innerHTML = "⌨ Space · ← → · M · L · C · ↑ ↓";
 document.body.appendChild(hint);
 
 // --- Инициализация ---
+updateUserNameLabel();
 renderLibrary();
 connectWS();
+
+// Если имени нет — предложим ввести сразу (но не блокируем)
+if (!getUserName()) {
+    setTimeout(() => {
+        if (!getUserName()) editUserName();
+    }, 800);
+}
