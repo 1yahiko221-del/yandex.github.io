@@ -36,7 +36,7 @@
     <div id="status">Подключение...</div>
 
     <script>
-        // ⚠️ ЗАМЕНИ НА URL СВОЕГО БЭКЕНДА НА RENDER
+        // ⚠️ ЗАМЕНИ НА URL СВОЕГО БЭКЕНДА НА RENDER (без слэша в конце)
         const API_BASE = "https://yandex-sync-backend.onrender.com";
         const WS_URL = API_BASE.replace("https://", "wss://").replace("http://", "ws://") + "/ws";
 
@@ -102,7 +102,10 @@
                     headers: { "Content-Type": "application/json" },
                     body: JSON.stringify({ query })
                 });
-                if (!res.ok) throw new Error(`HTTP ${res.status}`);
+                if (!res.ok) {
+                    const errorData = await res.json().catch(() => ({}));
+                    throw new Error(`HTTP ${res.status}: ${JSON.stringify(errorData)}`);
+                }
                 const data = await res.json();
 
                 const container = document.getElementById("results");
@@ -128,14 +131,12 @@
                 const res = await fetch(`${API_BASE}/api/get_link`, {
                     method: "POST",
                     headers: { "Content-Type": "application/json" },
-                    body: JSON.stringify({ track_id: track.id })
+                    body: JSON.stringify({ track_id: String(track.id) })
                 });
 
-                // Если ответ не OK, пытаемся прочитать тело ошибки
                 if (!res.ok) {
                     const errorData = await res.json().catch(() => ({}));
                     console.error("Ответ сервера:", res.status, errorData);
-                    // Показываем детали ошибки в alert
                     const detail = errorData.detail ? JSON.stringify(errorData.detail) : "Неизвестная ошибка";
                     throw new Error(`HTTP ${res.status}: ${detail}`);
                 }
