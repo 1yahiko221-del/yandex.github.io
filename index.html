@@ -130,9 +130,17 @@
                     headers: { "Content-Type": "application/json" },
                     body: JSON.stringify({ track_id: track.id })
                 });
-                if (!res.ok) throw new Error(`HTTP ${res.status}`);
-                const data = await res.json();
 
+                // Если ответ не OK, пытаемся прочитать тело ошибки
+                if (!res.ok) {
+                    const errorData = await res.json().catch(() => ({}));
+                    console.error("Ответ сервера:", res.status, errorData);
+                    // Показываем детали ошибки в alert
+                    const detail = errorData.detail ? JSON.stringify(errorData.detail) : "Неизвестная ошибка";
+                    throw new Error(`HTTP ${res.status}: ${detail}`);
+                }
+
+                const data = await res.json();
                 const title = `${track.artist} — ${track.title}`;
                 send({ type: "track", url: data.url, title });
                 loadTrack(data.url, title, true);
