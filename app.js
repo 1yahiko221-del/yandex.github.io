@@ -17,7 +17,6 @@ let localQueue = [];
 let localCurrentIndex = -1;
 let lastVolume = 1;
 let currentTrack = null;
-let lastSearchResults = [];
 
 const clientId = Math.random().toString(36).substring(2, 10);
 
@@ -32,7 +31,6 @@ function loadVolumeSettings() {
 
     const muted = localStorage.getItem(MUTED_KEY) === '1';
 
-    // lastVolume — «какая громкость была до mute»
     let last = parseFloat(localStorage.getItem(VOLUME_KEY + '_last'));
     if (isNaN(last) || last <= 0) last = vol > 0 ? vol : 1;
 
@@ -53,7 +51,6 @@ function applyVolumeSettings() {
     const slider = document.getElementById("volumeSlider");
     const { vol, muted, last } = loadVolumeSettings();
 
-    // Если было muted — ставим 0, но помним last
     const effective = muted ? 0 : vol;
     audio.volume = effective;
     slider.value = effective;
@@ -133,7 +130,10 @@ function toggleLike(track) {
     }
     saveLibrary(lib);
     renderLibrary();
-    renderSearchResults(lastSearchResults);
+    // Если поиск открыт — перерисуем и его, чтобы лайк отразился
+    if (searchResultsEl.style.display !== 'none') {
+        renderSearchDropdown(currentSearchResults);
+    }
     renderQueue();
     updatePlayerLike();
 }
@@ -210,10 +210,34 @@ function copyRoomLink() {
     });
 }
 
-// --- Поиск ---
-async function search() {
-    const query = document.getElementById("searchInput").value.trim();
-    if (!query) return;
+// --- Поиск в хедере ---
+const searchInput = document.getElementById("searchInput");
+const searchResultsEl = document.getElementById("searchResults");
+const searchClear = document.getElementById("searchClear");
+const searchWrap = document.getElementById("searchWrap");
+
+let searchDebounce = null;
+let currentSearchResults = [];
+let searchRequestId = 0;
+
+function openSearchResults() {
+    searchResultsEl.style.display = 'block';
+}
+function closeSearchResults() {
+    searchResultsEl.style.display = 'none';
+}
+function clearSearch() {
+    searchInput.value = '';
+    currentSearchResults = [];
+    searchResultsEl.innerHTML = '';
+    searchClear.style.display = 'none';
+    closeSearchResults();
+}
+
+async function performSearch(query) {
+    const reqId = ++searchRequestId;
+    searchResultsEl.innerHTML = `<div class="search-loader"><div class="spinner"></div>Ищу…</div>`;
+    openSearchResults();
 
     try {
         const res = await fetch(`${API_BASE}/api/search`, {
@@ -223,13 +247,98 @@ async function search() {
         });
         if (!res.ok) throw new Error(`HTTP ${res.status}`);
         const data = await res.json();
-        lastSearchResults = data.tracks || [];
-        renderSearchResults(lastSearchResults);
+        // Если за время запроса пользователь набрал ещё — игнорируем
+        if (reqId !== searchRequestId) return;
+        currentSearchResults = data.tracks || [];
+        renderSearchDropdown(currentSearchResults);
     } catch (e) {
+        if (reqId !== searchRequestId) return;
         console.error("Search error:", e);
-        document.getElementById("results").innerHTML = `<div class="empty"><p>Ошибка</p><span>${e.message}</span></div>`;
+        searchResultsEl.innerHTML = `<div class="search-empty">Ошибка: ${escapeHtml(e.message)}</div>`;
     }
 }
+
+function renderSearchDropdown(tracks) {
+    if (!tracks || tracks.length === 0) {
+        searchResultsEl.innerHTML = `<div class="search-empty">Ничего не найдено</div>`;
+        return;
+    }
+
+    searchResultsEl.innerHTML = '';
+    tracks.forEach((track) => {
+        const div = document.createElement("div");
+        div.className = "track";
+
+        const cover = track.cover
+            ? `<img class="track-cover" src="${track.cover}" alt="" loading="lazy" draggable="false">`
+            : `<div class="track-cover"></div>`;
+
+        const artist = track.artist + (track.duration ? ` · ${track.duration}с` : "");
+
+        div.innerHTML = `${cover}<div class="track-info"><div class="track-title">${escapeHtml(track.title)}</div><div class="track-artist">${escapeHtml(artist)}</div></div>`;
+
+        const actions = document.createElement("div");
+        actions.className = "track-actions";
+
+        const liked = isLiked(track.id);
+        const likeBtn = document.createElement("button");
+        likeBtn.className = "btn-icon" + (liked ? " liked" : "");
+        likeBtn.innerHTML = `<svg viewBox="0 0 24 24" width="18" height="18" fill="${liked ? 'currentColor' : 'none'}" stroke="currentColor" stroke-width="2"><path d="M20.84 4.61a5.5 5.5 0 0 0-7.78 0L12 5.67l-1.06-1.06a5.5 5.5 0 0 0-7.78 7.78l1.06 1.06L12 21.23l7.78-7.78 1.06-1.06a5.5 5.5 0 0 0 0-7.78z"/></svg>`;
+        likeBtn.onclick = (e) => { e.stopPropagation(); toggleLike(track); };
+        actions.appendChild(likeBtn);
+
+        const addBtn = document.createElement("button");
+        addBtn.className = "btn btn-primary btn-small";
+        addBtn.innerHTML = `<svg viewBox="0 0 24 24" width="14" height="14" fill="currentColor"><path d="M19 13h-6v6h-2v-6H5v-2h6V5h2v6h6v2z"/></svg>`;
+        addBtn.onclick = (e) => { e.stopPropagation(); addToQueue(track); };
+        actions.appendChild(addBtn);
+
+        div.appendChild(actions);
+
+        // Клик по треку в выпадашке = добавить в очередь
+        div.addEventListener("click", () => {
+            addToQueue(track);
+        });
+
+        searchResultsEl.appendChild(div);
+    });
+}
+
+// input: debounce
+searchInput.addEventListener("input", () => {
+    const q = searchInput.value.trim();
+    searchClear.style.display = q ? "flex" : "none";
+
+    if (searchDebounce) clearTimeout(searchDebounce);
+
+    if (!q) {
+        currentSearchResults = [];
+        searchResultsEl.innerHTML = '';
+        closeSearchResults();
+        return;
+    }
+
+    searchDebounce = setTimeout(() => performSearch(q), 400);
+});
+
+// Enter — мгновенный поиск
+searchInput.addEventListener("keydown", (e) => {
+    if (e.key === "Enter") {
+        if (searchDebounce) clearTimeout(searchDebounce);
+        const q = searchInput.value.trim();
+        if (q) performSearch(q);
+    } else if (e.key === "Escape") {
+        closeSearchResults();
+        searchInput.blur();
+    }
+});
+
+// Клик вне поиска — закрыть выпадашку
+document.addEventListener("click", (e) => {
+    if (!searchWrap.contains(e.target)) {
+        closeSearchResults();
+    }
+});
 
 // --- Рендер треков ---
 function renderTracks(container, tracks, options = {}) {
@@ -417,9 +526,6 @@ function setupInteractions(el, index, { draggable, onClick }) {
     el.addEventListener("dragstart", (e) => e.preventDefault());
 }
 
-function renderSearchResults(tracks) {
-    renderTracks(document.getElementById("results"), tracks, { showLike: true, showAdd: true });
-}
 function renderQueue() {
     renderTracks(document.getElementById("queue"), localQueue, {
         showIndex: true,
@@ -457,7 +563,7 @@ function addToQueue(track) {
         cover: track.cover || "",
         added_by: name,
     });
-    showToast(`➕ Добавлено в очередь`);
+    showToast(`➕ ${track.title}`);
 }
 function addAllLibraryToQueue() {
     const lib = getLibrary();
@@ -498,8 +604,6 @@ function loadTrackState(track, index, time, isPlaying) {
     audio.src = track.url;
     audio.currentTime = time || 0;
 
-    // ВАЖНО: некоторые браузеры сбрасывают volume при смене src.
-    // Восстанавливаем сохранённое значение.
     applyVolumeSettings();
 
     currentTrack = {
@@ -566,7 +670,7 @@ function toggleCollapse() {
     player.classList.toggle("collapsed");
 }
 
-// --- Прогресс + seek через pointer events ---
+// --- Прогресс + seek ---
 const progressContainer = document.getElementById("progressContainer");
 const progressBar = document.getElementById("progressBar");
 const currentTimeEl = document.getElementById("currentTime");
@@ -655,8 +759,6 @@ audio.addEventListener("pause", () => {
 audio.addEventListener("ended", () => {
     send({ type: "track_ended", expected_index: localCurrentIndex });
 });
-
-// Восстанавливаем громкость при смене src (некоторые браузеры сбрасывают)
 audio.addEventListener("loadstart", () => {
     const { vol, muted } = loadVolumeSettings();
     audio.volume = muted ? 0 : vol;
@@ -693,11 +795,6 @@ document.addEventListener("click", (e) => {
     const rect = btn.getBoundingClientRect();
     btn.style.setProperty("--x", `${e.clientX - rect.left}px`);
     btn.style.setProperty("--y", `${e.clientY - rect.top}px`);
-});
-
-// --- Enter для поиска ---
-document.getElementById("searchInput").addEventListener("keydown", (e) => {
-    if (e.key === "Enter") search();
 });
 
 // --- Enter / Escape в модалке имени ---
@@ -762,7 +859,7 @@ hint.innerHTML = "⌨ Space · ← → · M · L · C · ↑ ↓";
 document.body.appendChild(hint);
 
 // --- Инициализация ---
-applyVolumeSettings();   // ← восстановить громкость из localStorage
+applyVolumeSettings();
 updateUserNameLabel();
 renderLibrary();
 connectWS();
