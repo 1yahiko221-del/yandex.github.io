@@ -1,7 +1,5 @@
-// ⚠️ ЗАМЕНИ НА URL СВОЕГО БЭКЕНДА НА RENDER
 const API_BASE = "https://yandex-sync-backend.onrender.com";
 
-// --- Комната ---
 const urlParams = new URLSearchParams(window.location.search);
 let roomId = urlParams.get('room');
 if (!roomId) {
@@ -23,11 +21,19 @@ let lastSearchResults = [];
 
 const clientId = Math.random().toString(36).substring(2, 10);
 
-// --- Библиотека (localStorage) ---
+// --- Тосты ---
+function showToast(text, duration = 2000) {
+    const toast = document.getElementById('toast');
+    toast.textContent = text;
+    toast.classList.add('show');
+    clearTimeout(toast._timer);
+    toast._timer = setTimeout(() => toast.classList.remove('show'), duration);
+}
+
+// --- Библиотека ---
 function getLibrary() {
-    try {
-        return JSON.parse(localStorage.getItem('syncMusicLibrary') || '[]');
-    } catch { return []; }
+    try { return JSON.parse(localStorage.getItem('syncMusicLibrary') || '[]'); }
+    catch { return []; }
 }
 function saveLibrary(lib) {
     localStorage.setItem('syncMusicLibrary', JSON.stringify(lib));
@@ -38,13 +44,18 @@ function isLiked(trackId) {
 function toggleLike(track) {
     const lib = getLibrary();
     const idx = lib.findIndex(t => String(t.id) === String(track.id));
-    if (idx >= 0) lib.splice(idx, 1);
-    else lib.push({
-        id: track.id,
-        title: track.title,
-        artist: track.artist,
-        cover: track.cover || '',
-    });
+    if (idx >= 0) {
+        lib.splice(idx, 1);
+        showToast(`Удалено из библиотеки`);
+    } else {
+        lib.push({
+            id: track.id,
+            title: track.title,
+            artist: track.artist,
+            cover: track.cover || '',
+        });
+        showToast(`❤️ Добавлено в библиотеку`);
+    }
     saveLibrary(lib);
     renderLibrary();
     renderSearchResults(lastSearchResults);
@@ -62,16 +73,16 @@ function connectWS() {
     ws = new WebSocket(WS_URL);
 
     ws.onopen = () => {
-        setStatus("🟢 Подключено к комнате");
+        setStatus("🟢 Подключено");
         if (reconnectTimer) { clearTimeout(reconnectTimer); reconnectTimer = null; }
     };
     ws.onclose = () => {
-        setStatus("🔴 Отключено, переподключение...");
+        setStatus("🔴 Отключено");
         if (!reconnectTimer) {
             reconnectTimer = setTimeout(() => { reconnectTimer = null; connectWS(); }, 3000);
         }
     };
-    ws.onerror = () => setStatus("⚠️ Ошибка соединения");
+    ws.onerror = () => setStatus("⚠️ Ошибка");
 
     ws.onmessage = (event) => {
         const msg = JSON.parse(event.data);
@@ -105,15 +116,13 @@ function send(msg) {
         ws.send(JSON.stringify(msg));
     }
 }
-
 function setStatus(text) {
     document.getElementById("status").textContent = text;
 }
-
 function copyRoomLink() {
     const link = `${window.location.origin}${window.location.pathname}?room=${roomId}`;
     navigator.clipboard.writeText(link).then(() => {
-        alert("Ссылка скопирована! Отправь другу.");
+        showToast("🔗 Ссылка скопирована!");
     }).catch(() => {
         prompt("Скопируй ссылку вручную:", link);
     });
@@ -136,16 +145,16 @@ async function search() {
         renderSearchResults(lastSearchResults);
     } catch (e) {
         console.error("Search error:", e);
-        document.getElementById("results").innerHTML = `<div class="empty">Ошибка: ${e.message}</div>`;
+        document.getElementById("results").innerHTML = `<div class="empty"><p>Ошибка</p><span>${e.message}</span></div>`;
     }
 }
 
-// --- Отрисовка списка треков (общая) ---
+// --- Рендер треков ---
 function renderTracks(container, tracks, options = {}) {
     const { showIndex = false, showRemove = false, showLike = false, showAdd = false } = options;
     container.innerHTML = "";
     if (!tracks || tracks.length === 0) {
-        container.innerHTML = '<div class="empty">Ничего не найдено</div>';
+        container.innerHTML = '<div class="empty"><p>Ничего не найдено</p></div>';
         return;
     }
     tracks.forEach((track, i) => {
@@ -154,44 +163,48 @@ function renderTracks(container, tracks, options = {}) {
         if (i === localCurrentIndex && showIndex) div.classList.add("current");
 
         const cover = track.cover
-            ? `<img class="track-cover" src="${track.cover}" alt="">`
+            ? `<img class="track-cover" src="${track.cover}" alt="" loading="lazy">`
             : `<div class="track-cover"></div>`;
 
-        const title = showIndex ? `${i + 1}. ${track.title}` : track.title;
-        const artist = track.artist + (track.duration ? ` (${track.duration}с)` : "");
+        let titleHtml = showIndex ? `${i + 1}. ${track.title}` : track.title;
+        if (i === localCurrentIndex && showIndex) {
+            titleHtml = `<span class="eq"><span></span><span></span><span></span></span> ${titleHtml}`;
+        }
 
-        div.innerHTML = `${cover}<div class="track-info"><div class="track-title">${title}</div><div class="track-artist">${artist}</div></div>`;
+        const artist = track.artist + (track.duration ? ` · ${track.duration}с` : "");
+
+        div.innerHTML = `${cover}<div class="track-info"><div class="track-title">${titleHtml}</div><div class="track-artist">${artist}</div></div>`;
 
         const actions = document.createElement("div");
         actions.className = "track-actions";
 
         if (showLike) {
+            const liked = isLiked(track.id);
             const likeBtn = document.createElement("button");
-            likeBtn.className = "btn-icon" + (isLiked(track.id) ? " liked" : "");
-            likeBtn.innerHTML = `<svg viewBox="0 0 24 24" width="18" height="18" fill="${isLiked(track.id) ? 'currentColor' : 'none'}" stroke="currentColor" stroke-width="2"><path d="M20.84 4.61a5.5 5.5 0 0 0-7.78 0L12 5.67l-1.06-1.06a5.5 5.5 0 0 0-7.78 7.78l1.06 1.06L12 21.23l7.78-7.78 1.06-1.06a5.5 5.5 0 0 0 0-7.78z"/></svg>`;
+            likeBtn.className = "btn-icon" + (liked ? " liked" : "");
+            likeBtn.innerHTML = `<svg viewBox="0 0 24 24" width="18" height="18" fill="${liked ? 'currentColor' : 'none'}" stroke="currentColor" stroke-width="2"><path d="M20.84 4.61a5.5 5.5 0 0 0-7.78 0L12 5.67l-1.06-1.06a5.5 5.5 0 0 0-7.78 7.78l1.06 1.06L12 21.23l7.78-7.78 1.06-1.06a5.5 5.5 0 0 0 0-7.78z"/></svg>`;
             likeBtn.onclick = (e) => { e.stopPropagation(); toggleLike(track); };
             actions.appendChild(likeBtn);
         }
 
         if (showAdd) {
             const addBtn = document.createElement("button");
-            addBtn.className = "btn btn-small";
-            addBtn.textContent = "+";
+            addBtn.className = "btn btn-primary btn-small";
+            addBtn.innerHTML = `<svg viewBox="0 0 24 24" width="14" height="14" fill="currentColor"><path d="M19 13h-6v6h-2v-6H5v-2h6V5h2v6h6v2z"/></svg>`;
             addBtn.onclick = (e) => { e.stopPropagation(); addToQueue(track); };
             actions.appendChild(addBtn);
         }
 
         if (showRemove) {
             const removeBtn = document.createElement("button");
-            removeBtn.className = "btn btn-secondary btn-small";
-            removeBtn.textContent = "✕";
+            removeBtn.className = "btn-icon";
+            removeBtn.innerHTML = `<svg viewBox="0 0 24 24" width="16" height="16" fill="currentColor"><path d="M19 6.41L17.59 5 12 10.59 6.41 5 5 6.41 10.59 12 5 17.59 6.41 19 12 13.41 17.59 19 19 17.59 13.41 12z"/></svg>`;
             removeBtn.onclick = (e) => { e.stopPropagation(); send({ type: "remove_from_queue", index: i }); };
             actions.appendChild(removeBtn);
         }
 
         div.appendChild(actions);
 
-        // Клик по треку
         div.onclick = () => {
             if (showIndex) send({ type: "play_track_manual", index: i });
             else addToQueue(track);
@@ -204,44 +217,21 @@ function renderTracks(container, tracks, options = {}) {
 function renderSearchResults(tracks) {
     renderTracks(document.getElementById("results"), tracks, { showLike: true, showAdd: true });
 }
-
 function renderQueue() {
     renderTracks(document.getElementById("queue"), localQueue, { showIndex: true, showRemove: true });
 }
-
 function renderLibrary() {
     const lib = getLibrary();
     const container = document.getElementById("library");
     if (lib.length === 0) {
-        container.innerHTML = '<div class="empty">Библиотека пуста</div>';
+        container.innerHTML = `<div class="empty">
+            <svg viewBox="0 0 24 24" width="48" height="48" fill="currentColor" opacity="0.3"><path d="M12 21.35l-1.45-1.32C5.4 15.36 2 12.28 2 8.5 2 5.42 4.42 3 7.5 3c1.74 0 3.41.81 4.5 2.09C13.09 3.81 14.76 3 16.5 3 19.58 3 22 5.42 22 8.5c0 3.78-3.4 6.86-8.55 11.54L12 21.35z"/></svg>
+            <p>Библиотека пуста</p>
+            <span>Лайкай треки, чтобы сохранить их</span>
+        </div>`;
         return;
     }
-    container.innerHTML = "";
-    lib.forEach(track => {
-        const div = document.createElement("div");
-        div.className = "track";
-        const cover = track.cover
-            ? `<img class="track-cover" src="${track.cover}" alt="">`
-            : `<div class="track-cover"></div>`;
-        div.innerHTML = `${cover}<div class="track-info"><div class="track-title">${track.title}</div><div class="track-artist">${track.artist}</div></div>`;
-
-        const actions = document.createElement("div");
-        actions.className = "track-actions";
-        const addBtn = document.createElement("button");
-        addBtn.className = "btn btn-small";
-        addBtn.textContent = "+";
-        addBtn.onclick = (e) => { e.stopPropagation(); addToQueue(track); };
-        const removeBtn = document.createElement("button");
-        removeBtn.className = "btn btn-secondary btn-small";
-        removeBtn.textContent = "✕";
-        removeBtn.onclick = (e) => { e.stopPropagation(); toggleLike(track); };
-        actions.appendChild(addBtn);
-        actions.appendChild(removeBtn);
-        div.appendChild(actions);
-
-        div.onclick = () => addToQueue(track);
-        container.appendChild(div);
-    });
+    renderTracks(container, lib, { showRemove: true });
 }
 
 function addToQueue(track) {
@@ -252,15 +242,16 @@ function addToQueue(track) {
         artist: track.artist,
         cover: track.cover || "",
     });
+    showToast(`➕ Добавлено в очередь`);
 }
-
 function addAllLibraryToQueue() {
     const lib = getLibrary();
     if (lib.length === 0) {
-        alert("Библиотека пуста");
+        showToast("Библиотека пуста");
         return;
     }
     lib.forEach(track => addToQueue(track));
+    showToast(`Добавлено треков: ${lib.length}`);
 }
 
 // --- Вкладки ---
@@ -303,7 +294,6 @@ function playTrackFromQueue(track, index) {
     isSyncing = true;
     audio.play().catch(err => console.warn("Autoplay blocked:", err)).finally(() => { isSyncing = false; });
 }
-
 function updatePlayerLike() {
     const btn = document.getElementById("playerLikeBtn");
     if (!currentTrack) {
@@ -315,13 +305,11 @@ function updatePlayerLike() {
     btn.classList.toggle("liked", liked);
     btn.querySelector("svg").setAttribute("fill", liked ? "currentColor" : "none");
 }
-
 function togglePlay() {
     const audio = document.getElementById("audio");
     if (audio.paused) audio.play().catch(() => {});
     else audio.pause();
 }
-
 function nextTrack() { send({ type: "next_track" }); }
 function prevTrack() { send({ type: "prev_track" }); }
 
@@ -358,34 +346,27 @@ audio.addEventListener("timeupdate", () => {
     currentTimeEl.textContent = formatTime(audio.currentTime);
     totalTimeEl.textContent = formatTime(audio.duration);
 });
-
 audio.addEventListener("loadedmetadata", () => {
     totalTimeEl.textContent = formatTime(audio.duration);
 });
-
 audio.addEventListener("play", () => {
     playIcon.style.display = "none";
     pauseIcon.style.display = "block";
     if (!isSyncing) send({ type: "play", time: audio.currentTime });
 });
-
 audio.addEventListener("pause", () => {
     playIcon.style.display = "block";
     pauseIcon.style.display = "none";
     if (!isSyncing) send({ type: "pause" });
 });
-
 audio.addEventListener("ended", () => send({ type: "track_ended" }));
 
 // --- Громкость ---
 const volumeSlider = document.getElementById("volumeSlider");
-const volumeIcon = document.getElementById("volumeIcon");
-
 volumeSlider.addEventListener("input", () => {
     audio.volume = parseFloat(volumeSlider.value);
     if (audio.volume > 0) lastVolume = audio.volume;
 });
-
 function toggleMute() {
     if (audio.volume > 0) {
         lastVolume = audio.volume;
@@ -396,6 +377,15 @@ function toggleMute() {
         volumeSlider.value = lastVolume;
     }
 }
+
+// --- Ripple-эффект на кнопках ---
+document.addEventListener("click", (e) => {
+    const btn = e.target.closest(".btn");
+    if (!btn) return;
+    const rect = btn.getBoundingClientRect();
+    btn.style.setProperty("--x", `${e.clientX - rect.left}px`);
+    btn.style.setProperty("--y", `${e.clientY - rect.top}px`);
+});
 
 // --- Enter для поиска ---
 document.getElementById("searchInput").addEventListener("keydown", (e) => {
