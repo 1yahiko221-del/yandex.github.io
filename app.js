@@ -228,7 +228,7 @@ function renderTracks(container, tracks, options = {}) {
 
         div.appendChild(actions);
 
-        // Обработчик кликов и drag через единый pointer-механизм
+        // Единый обработчик кликов и drag
         setupInteractions(div, i, {
             draggable,
             onClick: () => {
@@ -249,20 +249,17 @@ function setupInteractions(el, index, { draggable, onClick }) {
     let moved = false;
     let pointerId = null;
     let longPressTimer = null;
-    let isHandleStart = false;
 
-    const CLICK_THRESHOLD = 6;      // px — меньше этого считаем кликом
+    const CLICK_THRESHOLD = 6;
     const LONG_PRESS_MS = 300;
 
     const onPointerDown = (e) => {
-        // ПКМ или средняя кнопка — игнорируем
         if (e.pointerType === "mouse" && e.button !== 0) return;
-
-        // Клик по кнопке — не перехватываем, пусть onclick кнопки работает
+        // Кнопки обрабатываются отдельно
         if (e.target.closest("button")) return;
 
         const isTouch = e.pointerType === "touch";
-        isHandleStart = !!e.target.closest('[data-handle="1"]');
+        const isHandle = !!e.target.closest('[data-handle="1"]');
 
         startX = e.clientX;
         startY = e.clientY;
@@ -272,21 +269,13 @@ function setupInteractions(el, index, { draggable, onClick }) {
 
         if (draggable) {
             if (isTouch) {
-                // На тач — всегда через long press (кроме ручки)
-                if (isHandleStart) {
-                    beginDrag();
-                } else {
-                    longPressTimer = setTimeout(beginDrag, LONG_PRESS_MS);
-                }
+                if (isHandle) beginDrag();
+                else longPressTimer = setTimeout(beginDrag, LONG_PRESS_MS);
             } else {
-                // На ПК — только за ручку
-                if (isHandleStart) {
-                    beginDrag();
-                }
+                if (isHandle) beginDrag();
             }
         }
 
-        // Слушаем движение и отпускание на документе
         document.addEventListener("pointermove", onPointerMove, { passive: false });
         document.addEventListener("pointerup", onPointerUp);
         document.addEventListener("pointercancel", onPointerUp);
@@ -295,7 +284,6 @@ function setupInteractions(el, index, { draggable, onClick }) {
     const beginDrag = () => {
         dragging = true;
         el.classList.add("dragging");
-        // Вибрация на телефоне
         if (navigator.vibrate) navigator.vibrate(20);
     };
 
@@ -306,7 +294,6 @@ function setupInteractions(el, index, { draggable, onClick }) {
         const dy = e.clientY - startY;
         const dist = Math.sqrt(dx * dx + dy * dy);
 
-        // Если ещё не drag, но сдвинулись — отменяем long press
         if (!dragging) {
             if (dist > CLICK_THRESHOLD) {
                 moved = true;
@@ -321,7 +308,6 @@ function setupInteractions(el, index, { draggable, onClick }) {
         e.preventDefault();
         moved = true;
 
-        // Подсветка цели
         const elemBelow = document.elementFromPoint(e.clientX, e.clientY);
         const trackBelow = elemBelow?.closest('.track');
         document.querySelectorAll('.track.drag-over').forEach(t => t.classList.remove('drag-over'));
@@ -343,7 +329,6 @@ function setupInteractions(el, index, { draggable, onClick }) {
         }
 
         if (dragging) {
-            // Завершаем drag
             el.classList.remove("dragging");
             document.querySelectorAll('.track.drag-over').forEach(t => t.classList.remove('drag-over'));
 
@@ -367,7 +352,6 @@ function setupInteractions(el, index, { draggable, onClick }) {
     };
 
     el.addEventListener("pointerdown", onPointerDown);
-    // Отключаем нативный drag у картинок
     el.addEventListener("dragstart", (e) => e.preventDefault());
 }
 
@@ -531,7 +515,7 @@ audio.addEventListener("play", () => {
 audio.addEventListener("pause", () => {
     playIcon.style.display = "block";
     pauseIcon.style.display = "none";
-    if (!isSyncing) send({ type: "pause", time: audio.currentTime });
+    if (!isSyncing) send({ type: "pause" });
 });
 audio.addEventListener("ended", () => send({ type: "track_ended" }));
 
