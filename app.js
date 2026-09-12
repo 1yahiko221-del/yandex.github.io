@@ -18,6 +18,7 @@ let localCurrentIndex = -1;
 let lastVolume = 1;
 let currentTrack = null;
 let lastSearchResults = [];
+let dragFromIndex = null;
 
 const clientId = Math.random().toString(36).substring(2, 10);
 
@@ -88,12 +89,20 @@ function connectWS() {
         const msg = JSON.parse(event.data);
         const audio = document.getElementById("audio");
 
-        if (msg.type === "queue_update") {
+        if (msg.type === "full_state") {
+            localQueue = msg.queue || [];
+            localCurrentIndex = msg.current_index ?? -1;
+            renderQueue();
+            if (msg.track) {
+                // Загружаем трек без автоплея, выставляем позицию
+                loadTrackState(msg.track, msg.index, msg.current_time, msg.is_playing);
+            }
+        } else if (msg.type === "queue_update") {
             localQueue = msg.queue || [];
             localCurrentIndex = msg.current_index ?? -1;
             renderQueue();
         } else if (msg.type === "play_track") {
-            playTrackFromQueue(msg.track, msg.index);
+            playTrackFromQueue(msg.track, msg.index, msg.time || 0);
         } else if (msg.type === "play") {
             isSyncing = true;
             audio.currentTime = msg.time || 0;
@@ -133,8 +142,6 @@ async function search() {
     const query = document.getElementById("searchInput").value.trim();
     if (!query) return;
 
-    document.getElementById("results").innerHTML = `<div class="empty"><p>Поиск...</p></div>`;
-
     try {
         const res = await fetch(`${API_BASE}/api/search`, {
             method: "POST",
@@ -153,7 +160,14 @@ async function search() {
 
 // --- Рендер треков ---
 function renderTracks(container, tracks, options = {}) {
-    const { showIndex = false, showRemove = false, showLike = false, showAdd = false } = options;
+    const {
+        showIndex = false,
+        showRemove = false,
+        showLike = false,
+        showAdd = false,
+        draggable = false,
+    } = options;
+
     container.innerHTML = "";
     if (!tracks || tracks.length === 0) {
         container.innerHTML = '<div class="empty"><p>Ничего не найдено</p></div>';
@@ -162,10 +176,11 @@ function renderTracks(container, tracks, options = {}) {
     tracks.forEach((track, i) => {
         const div = document.createElement("div");
         div.className = "track";
+        div.dataset.index = i;
         if (i === localCurrentIndex && showIndex) div.classList.add("current");
 
         const cover = track.cover
-            ? `<img class="track-cover" src="${track.cover}" alt="" loading="lazy" onerror="this.style.display='none'">`
+            ? `<img class="track-cover" src="${track.cover}" alt="" loading="lazy" draggable="false">`
             : `<div class="track-cover"></div>`;
 
         let titleHtml = showIndex ? `${i + 1}. ${track.title}` : track.title;
@@ -175,7 +190,16 @@ function renderTracks(container, tracks, options = {}) {
 
         const artist = track.artist + (track.duration ? ` · ${track.duration}с` : "");
 
-        div.innerHTML = `${cover}<div class="track-info"><div class="track-title">${titleHtml}</div><div class="track-artist">${artist}</div></div>`;
+        // Drag handle (только если draggable)
+        const handleHtml = draggable
+            ? `<div class="track-drag-handle" data-handle="1">
+                   <svg viewBox="0 0 24 24" width="16" height="16" fill="currentColor">
+                       <path d="M11 18c0 1.1-.9 2-2 2s-2-.9-2-2 .9-2 2-2 2 .9 2 2zm-2-8c-1.1 0-2 .9-2 2s.9 2 2 2 2-.9 2-2-.9-2-2-2zm0-6c-1.1 0-2 .9-2 2s.9 2 2 2 2-.9 2-2-.9-2-2-2zm6 4c1.1 0 2-.9 2-2s-.9-2-2-2-2 .9-2 2 .9 2 2 2zm0 2c-1.1 0-2 .9-2 2s.9 2 2 2 2-.9 2-2-.9-2-2-2zm0 6c-1.1 0-2 .9-2 2s.9 2 2 2 2-.9 2-2-.9-2-2-2z"/>
+                   </svg>
+               </div>`
+            : "";
+
+        div.innerHTML = `${handleHtml}${cover}<div class="track-info"><div class="track-title">${titleHtml}</div><div class="track-artist">${artist}</div></div>`;
 
         const actions = document.createElement("div");
         actions.className = "track-actions";
@@ -207,20 +231,143 @@ function renderTracks(container, tracks, options = {}) {
 
         div.appendChild(actions);
 
-        div.onclick = () => {
+        // Клик (не срабатывает при drag)
+        div.onclick = (e) => {
+            if (div.dataset.wasDragging === "1") {
+                div.dataset.wasDragging = "0";
+                return;
+            }
             if (showIndex) send({ type: "play_track_manual", index: i });
             else addToQueue(track);
         };
 
+        // Drag-and-drop
+        if (draggable) {
+            setupDrag(div, i);
+        }
+
         container.appendChild(div);
     });
+}
+
+// --- Drag-and-drop через Pointer Events (мышь + touch) ---
+function setupDrag(el, index) {
+    let startY = 0;
+    let startX = 0;
+    let dragging = false;
+    let longPressTimer = null;
+
+    const onPointerDown = (e) => {
+        // Только ЛКМ или touch
+        if (e.pointerType === "mouse" && e.button !== 0) return;
+
+        const isHandle = e.target.closest('[data-handle="1"]');
+        // На мобильных — long press (300мс) на любом месте карточки
+        // На ПК — сразу, если на handle, или long press на карточке
+        const isTouch = e.pointerType === "touch";
+
+        const startDrag = () => {
+            dragging = true;
+            startY = e.clientY;
+            startX = e.clientX;
+            dragFromIndex = index;
+            el.classList.add("dragging");
+            el.setPointerCapture(e.pointerId);
+            el.dataset.wasDragging = "1";
+        };
+
+        if (isHandle || !isTouch) {
+            // На ПК: если на handle — сразу. Если нет — тоже сразу (для удобства)
+            // На мобильных: только если на handle
+            if (isTouch && !isHandle) {
+                longPressTimer = setTimeout(startDrag, 300);
+            } else {
+                startDrag();
+            }
+        } else {
+            // На мобильных, не на handle — ждём long press
+            longPressTimer = setTimeout(startDrag, 300);
+        }
+    };
+
+    const onPointerMove = (e) => {
+        if (!dragging) {
+            // Отменяем long press при движении
+            if (longPressTimer) {
+                clearTimeout(longPressTimer);
+                longPressTimer = null;
+            }
+            return;
+        }
+        e.preventDefault();
+
+        const y = e.clientY;
+        // Ищем элемент под курсором
+        const elemBelow = document.elementFromPoint(e.clientX, y);
+        const trackBelow = elemBelow?.closest('.track');
+
+        // Убираем подсветку у всех
+        document.querySelectorAll('.track.drag-over').forEach(t => t.classList.remove('drag-over'));
+
+        if (trackBelow && trackBelow !== el && trackBelow.parentElement.id === 'queue') {
+            trackBelow.classList.add('drag-over');
+        }
+    };
+
+    const onPointerUp = (e) => {
+        if (longPressTimer) {
+            clearTimeout(longPressTimer);
+            longPressTimer = null;
+        }
+        if (!dragging) return;
+
+        dragging = false;
+        el.classList.remove("dragging");
+        document.querySelectorAll('.track.drag-over').forEach(t => t.classList.remove('drag-over'));
+
+        const elemBelow = document.elementFromPoint(e.clientX, e.clientY);
+        const trackBelow = elemBelow?.closest('.track');
+
+        if (trackBelow && trackBelow !== el) {
+            const toIndex = parseInt(trackBelow.dataset.index, 10);
+            if (!isNaN(toIndex) && toIndex !== index) {
+                send({ type: "reorder_queue", from: index, to: toIndex });
+            }
+        }
+
+        dragFromIndex = null;
+
+        // Сбрасываем флаг через тик, чтобы click не сработал
+        setTimeout(() => {
+            el.dataset.wasDragging = "0";
+        }, 50);
+    };
+
+    const onPointerCancel = () => {
+        if (longPressTimer) {
+            clearTimeout(longPressTimer);
+            longPressTimer = null;
+        }
+        dragging = false;
+        el.classList.remove("dragging");
+        document.querySelectorAll('.track.drag-over').forEach(t => t.classList.remove('drag-over'));
+    };
+
+    el.addEventListener("pointerdown", onPointerDown);
+    el.addEventListener("pointermove", onPointerMove);
+    el.addEventListener("pointerup", onPointerUp);
+    el.addEventListener("pointercancel", onPointerCancel);
 }
 
 function renderSearchResults(tracks) {
     renderTracks(document.getElementById("results"), tracks, { showLike: true, showAdd: true });
 }
 function renderQueue() {
-    renderTracks(document.getElementById("queue"), localQueue, { showIndex: true, showRemove: true });
+    renderTracks(document.getElementById("queue"), localQueue, {
+        showIndex: true,
+        showRemove: true,
+        draggable: true,
+    });
 }
 function renderLibrary() {
     const lib = getLibrary();
@@ -265,10 +412,10 @@ function switchTab(tab) {
 }
 
 // --- Плеер ---
-function playTrackFromQueue(track, index) {
+function loadTrackState(track, index, time, isPlaying) {
     const audio = document.getElementById("audio");
     audio.src = track.url;
-    audio.currentTime = 0;
+    audio.currentTime = time || 0;
 
     currentTrack = {
         id: track.id,
@@ -293,9 +440,16 @@ function playTrackFromQueue(track, index) {
     renderQueue();
     updatePlayerLike();
 
-    isSyncing = true;
-    audio.play().catch(err => console.warn("Autoplay blocked:", err)).finally(() => { isSyncing = false; });
+    if (isPlaying) {
+        isSyncing = true;
+        audio.play().catch(err => console.warn("Autoplay blocked:", err)).finally(() => { isSyncing = false; });
+    }
 }
+
+function playTrackFromQueue(track, index, time = 0) {
+    loadTrackState(track, index, time, true);
+}
+
 function updatePlayerLike() {
     const btn = document.getElementById("playerLikeBtn");
     if (!currentTrack) {
@@ -314,6 +468,12 @@ function togglePlay() {
 }
 function nextTrack() { send({ type: "next_track" }); }
 function prevTrack() { send({ type: "prev_track" }); }
+
+// --- Мини-режим ---
+function toggleCollapse() {
+    const player = document.getElementById("player");
+    player.classList.toggle("collapsed");
+}
 
 // --- Прогресс ---
 const progressContainer = document.getElementById("progressContainer");
@@ -359,7 +519,7 @@ audio.addEventListener("play", () => {
 audio.addEventListener("pause", () => {
     playIcon.style.display = "block";
     pauseIcon.style.display = "none";
-    if (!isSyncing) send({ type: "pause" });
+    if (!isSyncing) send({ type: "pause", time: audio.currentTime });
 });
 audio.addEventListener("ended", () => send({ type: "track_ended" }));
 
@@ -374,13 +534,15 @@ function toggleMute() {
         lastVolume = audio.volume;
         audio.volume = 0;
         volumeSlider.value = 0;
+        showToast("🔇 Звук выключен");
     } else {
         audio.volume = lastVolume;
         volumeSlider.value = lastVolume;
+        showToast("🔊 Звук включён");
     }
 }
 
-// --- Ripple-эффект на кнопках ---
+// --- Ripple-эффект ---
 document.addEventListener("click", (e) => {
     const btn = e.target.closest(".btn");
     if (!btn) return;
@@ -393,6 +555,56 @@ document.addEventListener("click", (e) => {
 document.getElementById("searchInput").addEventListener("keydown", (e) => {
     if (e.key === "Enter") search();
 });
+
+// --- Горячие клавиши ---
+document.addEventListener("keydown", (e) => {
+    // Не срабатывают, если фокус в input
+    if (e.target.tagName === "INPUT" || e.target.tagName === "TEXTAREA") return;
+
+    switch (e.code) {
+        case "Space":
+            e.preventDefault();
+            togglePlay();
+            break;
+        case "ArrowRight":
+            e.preventDefault();
+            nextTrack();
+            break;
+        case "ArrowLeft":
+            e.preventDefault();
+            prevTrack();
+            break;
+        case "KeyM":
+            e.preventDefault();
+            toggleMute();
+            break;
+        case "KeyL":
+            e.preventDefault();
+            likeCurrentTrack();
+            showToast("❤️ Лайк");
+            break;
+        case "KeyC":
+            e.preventDefault();
+            toggleCollapse();
+            break;
+        case "ArrowUp":
+            e.preventDefault();
+            audio.volume = Math.min(1, audio.volume + 0.1);
+            volumeSlider.value = audio.volume;
+            break;
+        case "ArrowDown":
+            e.preventDefault();
+            audio.volume = Math.max(0, audio.volume - 0.1);
+            volumeSlider.value = audio.volume;
+            break;
+    }
+});
+
+// --- Подсказка горячих клавиш ---
+const hint = document.createElement("div");
+hint.className = "kbd-hint";
+hint.innerHTML = "⌨ Space · ← → · M · L · C · ↑ ↓";
+document.body.appendChild(hint);
 
 // --- Инициализация ---
 renderLibrary();
