@@ -3,21 +3,26 @@
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <meta name="robots" content="noindex, nofollow">
     <title>Sync Music</title>
     <style>
-        body { font-family: system-ui, sans-serif; max-width: 600px; margin: 40px auto; padding: 0 16px; }
-        input, button { font-size: 16px; padding: 8px 12px; }
-        #results div { padding: 8px; border-bottom: 1px solid #eee; cursor: pointer; }
-        #results div:hover { background: #f5f5f5; }
+        body { font-family: system-ui, sans-serif; max-width: 600px; margin: 40px auto; padding: 0 16px; background: #111; color: #eee; }
+        h1 { color: #fff; }
+        input, button { font-size: 16px; padding: 8px 12px; border-radius: 6px; border: 1px solid #333; background: #222; color: #eee; }
+        button { cursor: pointer; background: #1db954; border: none; color: #000; font-weight: bold; }
+        button:hover { background: #1ed760; }
+        #results div { padding: 10px; border-bottom: 1px solid #333; cursor: pointer; }
+        #results div:hover { background: #222; }
         #player { margin-top: 20px; }
-        #status { color: #666; font-size: 14px; margin-top: 8px; }
+        #status { color: #888; font-size: 14px; margin-top: 16px; }
+        audio { width: 100%; margin-top: 8px; }
     </style>
 </head>
 <body>
     <h1>🎵 Sync Music</h1>
 
     <div>
-        <input id="searchInput" placeholder="Поиск трека..." style="width: 70%;">
+        <input id="searchInput" placeholder="Поиск трека..." style="width: 65%;">
         <button onclick="search()">Найти</button>
     </div>
 
@@ -25,48 +30,58 @@
 
     <div id="player" style="display:none;">
         <h3 id="nowPlaying"></h3>
-        <audio id="audio" controls style="width: 100%;"></audio>
+        <audio id="audio" controls></audio>
     </div>
 
-    <div id="status">Отключено от сервера</div>
+    <div id="status">Подключение...</div>
 
     <script>
         // ⚠️ ЗАМЕНИ НА URL СВОЕГО БЭКЕНДА НА RENDER
-        const API_BASE = "https://yandex-sync-backend.onrender.com/";
-        const WS_URL = API_BASE.replace("https://", "wss://") + "/ws";
+        const API_BASE = "https://yandex-sync-backend-xxxx.onrender.com";
+        const WS_URL = API_BASE.replace("https://", "wss://").replace("http://", "ws://") + "/ws";
 
         let ws = null;
         let isSyncing = false;
+        let reconnectTimer = null;
 
-        // --- WebSocket подключение ---
         function connectWS() {
+            if (ws && ws.readyState === WebSocket.OPEN) return;
             ws = new WebSocket(WS_URL);
 
             ws.onopen = () => {
                 document.getElementById("status").textContent = "🟢 Подключено";
+                if (reconnectTimer) { clearTimeout(reconnectTimer); reconnectTimer = null; }
             };
 
             ws.onclose = () => {
-                document.getElementById("status").textContent = "🔴 Отключено";
-                setTimeout(connectWS, 3000);
+                document.getElementById("status").textContent = "🔴 Отключено, переподключение...";
+                if (!reconnectTimer) {
+                    reconnectTimer = setTimeout(() => { reconnectTimer = null; connectWS(); }, 3000);
+                }
+            };
+
+            ws.onerror = () => {
+                document.getElementById("status").textContent = "⚠️ Ошибка соединения";
             };
 
             ws.onmessage = (event) => {
                 const msg = JSON.parse(event.data);
                 const audio = document.getElementById("audio");
 
-                if (msg.type === "play") {
+                if (msg.type === "track") {
+                    loadTrack(msg.url, msg.title, false);
+                } else if (msg.type === "play") {
                     isSyncing = true;
                     audio.currentTime = msg.time || 0;
-                    audio.play().then(() => isSyncing = false);
+                    audio.play().catch(() => {}).finally(() => { isSyncing = false; });
                 } else if (msg.type === "pause") {
                     isSyncing = true;
                     audio.pause();
                     isSyncing = false;
                 } else if (msg.type === "seek") {
+                    isSyncing = true;
                     audio.currentTime = msg.time;
-                } else if (msg.type === "track") {
-                    loadTrack(msg.url, msg.title);
+                    isSyncing = false;
                 }
             };
         }
@@ -77,51 +92,67 @@
             }
         }
 
-        // --- Поиск ---
         async function search() {
-            const query = document.getElementById("searchInput").value;
+            const query = document.getElementById("searchInput").value.trim();
             if (!query) return;
 
-            const res = await fetch(`${API_BASE}/api/search`, {
-                method: "POST",
-                headers: { "Content-Type": "application/json" },
-                body: JSON.stringify({ query })
-            });
-            const data = await res.json();
+            try {
+                const res = await fetch(`${API_BASE}/api/search`, {
+                    method: "POST",
+                    headers: { "Content-Type": "application/json" },
+                    body: JSON.stringify({ query })
+                });
+                if (!res.ok) throw new Error(`HTTP ${res.status}`);
+                const data = await res.json();
 
-            const container = document.getElementById("results");
-            container.innerHTML = "";
-            data.tracks.forEach(track => {
-                const div = document.createElement("div");
-                div.textContent = `${track.artist} — ${track.title} (${track.duration}с)`;
-                div.onclick = () => selectTrack(track);
-                container.appendChild(div);
-            });
+                const container = document.getElementById("results");
+                container.innerHTML = "";
+                if (!data.tracks || data.tracks.length === 0) {
+                    container.innerHTML = "<div>Ничего не найдено</div>";
+                    return;
+                }
+                data.tracks.forEach(track => {
+                    const div = document.createElement("div");
+                    div.textContent = `${track.artist} — ${track.title} (${track.duration}с)`;
+                    div.onclick = () => selectTrack(track);
+                    container.appendChild(div);
+                });
+            } catch (e) {
+                console.error("Search error:", e);
+                document.getElementById("results").innerHTML = `<div>Ошибка: ${e.message}</div>`;
+            }
         }
 
-        // --- Выбор трека ---
         async function selectTrack(track) {
-            const res = await fetch(`${API_BASE}/api/get_link`, {
-                method: "POST",
-                headers: { "Content-Type": "application/json" },
-                body: JSON.stringify({ track_id: track.id })
-            });
-            const data = await res.json();
+            try {
+                const res = await fetch(`${API_BASE}/api/get_link`, {
+                    method: "POST",
+                    headers: { "Content-Type": "application/json" },
+                    body: JSON.stringify({ track_id: track.id })
+                });
+                if (!res.ok) throw new Error(`HTTP ${res.status}`);
+                const data = await res.json();
 
-            const title = `${track.artist} — ${track.title}`;
-            send({ type: "track", url: data.url, title });
-            loadTrack(data.url, title);
+                const title = `${track.artist} — ${track.title}`;
+                send({ type: "track", url: data.url, title });
+                loadTrack(data.url, title, true);
+            } catch (e) {
+                console.error("Link error:", e);
+                alert("Не удалось получить ссылку: " + e.message);
+            }
         }
 
-        function loadTrack(url, title) {
+        function loadTrack(url, title, autoplay) {
             const audio = document.getElementById("audio");
             audio.src = url;
             audio.currentTime = 0;
             document.getElementById("nowPlaying").textContent = title;
             document.getElementById("player").style.display = "block";
+            if (autoplay) {
+                audio.play().catch(err => console.warn("Autoplay blocked:", err));
+            }
         }
 
-        // --- Синхронизация событий плеера ---
         const audio = document.getElementById("audio");
         audio.addEventListener("play", () => {
             if (!isSyncing) send({ type: "play", time: audio.currentTime });
