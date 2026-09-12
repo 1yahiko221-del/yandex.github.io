@@ -518,9 +518,6 @@ body {
 .track-drag-handle:active {
     cursor: grabbing;
 }
-@media (max-width: 600px) {
-    .track-drag-handle { display: none; }
-}
 
 /* --- Плеер --- */
 .player {
@@ -932,4 +929,6 @@ body {
     .orb-2 { width: 250px; height: 250px; }
     .orb-3 { width: 220px; height: 220px; }
     .kbd-hint { display: none; }
+    /* Ручка drag остаётся видимой на мобильных — иначе перетаскивание недоступно */
+    .track-drag-handle { display: flex; }
 }
