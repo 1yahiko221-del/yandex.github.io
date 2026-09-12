@@ -228,80 +228,89 @@ function renderTracks(container, tracks, options = {}) {
 
         div.appendChild(actions);
 
-        // Клик (срабатывает только если НЕ было drag)
-        div.addEventListener("click", (e) => {
-            // Если клик по кнопке — не обрабатываем
-            if (e.target.closest("button")) return;
-            if (div.dataset.dragged === "1") {
-                div.dataset.dragged = "0";
-                return;
-            }
-            if (showIndex) send({ type: "play_track_manual", index: i });
-            else addToQueue(track);
+        // Обработчик кликов и drag через единый pointer-механизм
+        setupInteractions(div, i, {
+            draggable,
+            onClick: () => {
+                if (showIndex) send({ type: "play_track_manual", index: i });
+                else addToQueue(track);
+            },
         });
-
-        // Drag-and-drop
-        if (draggable) {
-            setupDrag(div, i);
-        }
 
         container.appendChild(div);
     });
 }
 
-// --- Drag-and-drop через Pointer Events ---
-function setupDrag(el, index) {
+// --- Единый обработчик: клик vs drag ---
+function setupInteractions(el, index, { draggable, onClick }) {
     let startX = 0;
     let startY = 0;
     let dragging = false;
+    let moved = false;
     let pointerId = null;
     let longPressTimer = null;
+    let isHandleStart = false;
+
+    const CLICK_THRESHOLD = 6;      // px — меньше этого считаем кликом
+    const LONG_PRESS_MS = 300;
 
     const onPointerDown = (e) => {
+        // ПКМ или средняя кнопка — игнорируем
         if (e.pointerType === "mouse" && e.button !== 0) return;
-        // Не начинаем drag, если клик по кнопке (лайк, удалить, добавить)
+
+        // Клик по кнопке — не перехватываем, пусть onclick кнопки работает
         if (e.target.closest("button")) return;
 
         const isTouch = e.pointerType === "touch";
-        const isHandle = e.target.closest('[data-handle="1"]');
+        isHandleStart = !!e.target.closest('[data-handle="1"]');
 
         startX = e.clientX;
         startY = e.clientY;
+        moved = false;
+        dragging = false;
         pointerId = e.pointerId;
 
-        const beginDrag = () => {
-            dragging = true;
-            el.classList.add("dragging");
-            el.dataset.dragged = "1";
-            document.addEventListener("pointermove", onPointerMove, { passive: false });
-            document.addEventListener("pointerup", onPointerUp);
-            document.addEventListener("pointercancel", onPointerUp);
-        };
-
-        // На ПК — тянем сразу за ручку, либо за карточку тоже можно (но лучше за ручку)
-        // На телефоне — только долгое нажатие
-        if (isTouch) {
-            if (isHandle) {
-                // На ручке — сразу
-                beginDrag();
+        if (draggable) {
+            if (isTouch) {
+                // На тач — всегда через long press (кроме ручки)
+                if (isHandleStart) {
+                    beginDrag();
+                } else {
+                    longPressTimer = setTimeout(beginDrag, LONG_PRESS_MS);
+                }
             } else {
-                longPressTimer = setTimeout(beginDrag, 300);
-            }
-        } else {
-            // ПК: только за ручку, чтобы клик по карточке = play
-            if (isHandle) {
-                beginDrag();
+                // На ПК — только за ручку
+                if (isHandleStart) {
+                    beginDrag();
+                }
             }
         }
+
+        // Слушаем движение и отпускание на документе
+        document.addEventListener("pointermove", onPointerMove, { passive: false });
+        document.addEventListener("pointerup", onPointerUp);
+        document.addEventListener("pointercancel", onPointerUp);
+    };
+
+    const beginDrag = () => {
+        dragging = true;
+        el.classList.add("dragging");
+        // Вибрация на телефоне
+        if (navigator.vibrate) navigator.vibrate(20);
     };
 
     const onPointerMove = (e) => {
+        if (e.pointerId !== pointerId) return;
+
+        const dx = e.clientX - startX;
+        const dy = e.clientY - startY;
+        const dist = Math.sqrt(dx * dx + dy * dy);
+
+        // Если ещё не drag, но сдвинулись — отменяем long press
         if (!dragging) {
-            // Если сдвинулись до начала drag — отменяем long press
-            if (longPressTimer) {
-                const dx = Math.abs(e.clientX - startX);
-                const dy = Math.abs(e.clientY - startY);
-                if (dx > 5 || dy > 5) {
+            if (dist > CLICK_THRESHOLD) {
+                moved = true;
+                if (longPressTimer) {
                     clearTimeout(longPressTimer);
                     longPressTimer = null;
                 }
@@ -310,10 +319,11 @@ function setupDrag(el, index) {
         }
 
         e.preventDefault();
+        moved = true;
 
+        // Подсветка цели
         const elemBelow = document.elementFromPoint(e.clientX, e.clientY);
         const trackBelow = elemBelow?.closest('.track');
-
         document.querySelectorAll('.track.drag-over').forEach(t => t.classList.remove('drag-over'));
         if (trackBelow && trackBelow !== el) {
             trackBelow.classList.add('drag-over');
@@ -321,39 +331,44 @@ function setupDrag(el, index) {
     };
 
     const onPointerUp = (e) => {
-        if (longPressTimer) {
-            clearTimeout(longPressTimer);
-            longPressTimer = null;
-        }
+        if (e.pointerId !== pointerId) return;
 
         document.removeEventListener("pointermove", onPointerMove);
         document.removeEventListener("pointerup", onPointerUp);
         document.removeEventListener("pointercancel", onPointerUp);
 
-        if (!dragging) return;
-
-        dragging = false;
-        el.classList.remove("dragging");
-
-        const elemBelow = document.elementFromPoint(e.clientX, e.clientY);
-        const trackBelow = elemBelow?.closest('.track');
-
-        document.querySelectorAll('.track.drag-over').forEach(t => t.classList.remove('drag-over'));
-
-        if (trackBelow && trackBelow !== el) {
-            const toIndex = parseInt(trackBelow.dataset.index, 10);
-            if (!isNaN(toIndex) && toIndex !== index) {
-                send({ type: "reorder_queue", from: index, to: toIndex });
-            }
+        if (longPressTimer) {
+            clearTimeout(longPressTimer);
+            longPressTimer = null;
         }
 
-        // Сбрасываем флаг «был drag» через тик, чтобы click не сработал
-        setTimeout(() => {
-            el.dataset.dragged = "0";
-        }, 100);
+        if (dragging) {
+            // Завершаем drag
+            el.classList.remove("dragging");
+            document.querySelectorAll('.track.drag-over').forEach(t => t.classList.remove('drag-over'));
+
+            const elemBelow = document.elementFromPoint(e.clientX, e.clientY);
+            const trackBelow = elemBelow?.closest('.track');
+
+            if (trackBelow && trackBelow !== el) {
+                const toIndex = parseInt(trackBelow.dataset.index, 10);
+                if (!isNaN(toIndex) && toIndex !== index) {
+                    send({ type: "reorder_queue", from: index, to: toIndex });
+                }
+            }
+        } else if (!moved) {
+            // Это был клик — обрабатываем сами
+            onClick();
+        }
+
+        dragging = false;
+        moved = false;
+        pointerId = null;
     };
 
     el.addEventListener("pointerdown", onPointerDown);
+    // Отключаем нативный drag у картинок
+    el.addEventListener("dragstart", (e) => e.preventDefault());
 }
 
 function renderSearchResults(tracks) {
