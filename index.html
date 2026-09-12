@@ -5,7 +5,7 @@
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
     <meta name="robots" content="noindex, nofollow">
     <title>Sync Music</title>
-    <link rel="stylesheet" href="style.css?v=5">
+    <link rel="stylesheet" href="style.css?v=6">
 </head>
 <body>
     <div class="bg-orbs">
@@ -31,6 +31,12 @@
                         <path d="M16 1H4c-1.1 0-2 .9-2 2v14h2V3h12V1zm3 4H8c-1.1 0-2 .9-2 2v14c0 1.1.9 2 2 2h11c1.1 0 2-.9 2-2V7c0-1.1-.9-2-2-2zm0 16H8V7h11v14z"/>
                     </svg>
                     Копировать
+                </button>
+                <button class="btn btn-ghost btn-small user-btn" id="userBtn" onclick="editUserName()" title="Сменить имя">
+                    <svg viewBox="0 0 24 24" width="14" height="14" fill="currentColor">
+                        <path d="M12 12c2.21 0 4-1.79 4-4s-1.79-4-4-4-4 1.79-4 4 1.79 4 4 4zm0 2c-2.67 0-8 1.34-8 4v2h16v-2c0-2.66-5.33-4-8-4z"/>
+                    </svg>
+                    <span id="userNameLabel">Гость</span>
                 </button>
             </div>
         </header>
@@ -170,9 +176,22 @@
         <audio id="audio"></audio>
     </div>
 
+    <!-- Модалка имени -->
+    <div id="nameModal" class="modal-backdrop" style="display:none;">
+        <div class="modal glass">
+            <h3 class="modal-title">Как тебя зовут?</h3>
+            <p class="modal-sub">Имя будет видно рядом с треками, которые ты добавил в очередь.</p>
+            <input id="nameInput" class="input" maxlength="24" placeholder="Например, Аня" autocomplete="off">
+            <div class="modal-actions">
+                <button class="btn btn-secondary" onclick="closeNameModal()">Отмена</button>
+                <button class="btn btn-primary" onclick="saveName()">Сохранить</button>
+            </div>
+        </div>
+    </div>
+
     <div id="toast" class="toast"></div>
     <div id="status" class="status">Подключение...</div>
 
-    <script src="app.js?v=5"></script>
+    <script src="app.js?v=6"></script>
 </body>
 </html>
