@@ -21,6 +21,45 @@ let lastSearchResults = [];
 
 const clientId = Math.random().toString(36).substring(2, 10);
 
+// --- Громкость в localStorage ---
+const VOLUME_KEY = 'syncMusicVolume';
+const MUTED_KEY = 'syncMusicMuted';
+
+function loadVolumeSettings() {
+    let vol = parseFloat(localStorage.getItem(VOLUME_KEY));
+    if (isNaN(vol)) vol = 1;
+    vol = Math.max(0, Math.min(1, vol));
+
+    const muted = localStorage.getItem(MUTED_KEY) === '1';
+
+    // lastVolume — «какая громкость была до mute»
+    let last = parseFloat(localStorage.getItem(VOLUME_KEY + '_last'));
+    if (isNaN(last) || last <= 0) last = vol > 0 ? vol : 1;
+
+    return { vol, muted, last };
+}
+
+function saveVolumeSettings() {
+    const audio = document.getElementById("audio");
+    localStorage.setItem(VOLUME_KEY, String(audio.volume));
+    localStorage.setItem(MUTED_KEY, audio.volume === 0 ? '1' : '0');
+    if (audio.volume > 0) {
+        localStorage.setItem(VOLUME_KEY + '_last', String(audio.volume));
+    }
+}
+
+function applyVolumeSettings() {
+    const audio = document.getElementById("audio");
+    const slider = document.getElementById("volumeSlider");
+    const { vol, muted, last } = loadVolumeSettings();
+
+    // Если было muted — ставим 0, но помним last
+    const effective = muted ? 0 : vol;
+    audio.volume = effective;
+    slider.value = effective;
+    lastVolume = muted ? last : vol;
+}
+
 // --- Имя пользователя ---
 const NAME_KEY = 'syncMusicUserName';
 function getUserName() {
@@ -54,9 +93,6 @@ function saveName() {
     setUserName(val);
     closeNameModal();
     showToast(`👤 Привет, ${val}!`);
-    // Перерисуем очередь — у только что добавленных треков имя не изменится,
-    // но визуально это полезно, если пользователь поменял имя и хочет видеть
-    // актуальное состояние UI (сам список треков не переименовывается).
     renderQueue();
 }
 
@@ -228,7 +264,6 @@ function renderTracks(container, tracks, options = {}) {
 
         let artist = track.artist + (track.duration ? ` · ${track.duration}с` : "");
 
-        // Строка «добавил: X» — только в очереди и только если есть данные
         if (showAddedBy && track.added_by) {
             artist += ` · <span class="added-by">добавил: ${escapeHtml(track.added_by)}</span>`;
         }
@@ -410,7 +445,6 @@ function renderLibrary() {
 function addToQueue(track) {
     const name = getUserName();
     if (!name) {
-        // Спрашиваем имя один раз — потом оно уже сохранено
         editUserName();
         showToast("Сначала введи имя — потом добавляй треки");
         return;
@@ -463,6 +497,10 @@ function loadTrackState(track, index, time, isPlaying) {
     const audio = document.getElementById("audio");
     audio.src = track.url;
     audio.currentTime = time || 0;
+
+    // ВАЖНО: некоторые браузеры сбрасывают volume при смене src.
+    // Восстанавливаем сохранённое значение.
+    applyVolumeSettings();
 
     currentTrack = {
         id: track.id,
@@ -618,21 +656,32 @@ audio.addEventListener("ended", () => {
     send({ type: "track_ended", expected_index: localCurrentIndex });
 });
 
+// Восстанавливаем громкость при смене src (некоторые браузеры сбрасывают)
+audio.addEventListener("loadstart", () => {
+    const { vol, muted } = loadVolumeSettings();
+    audio.volume = muted ? 0 : vol;
+});
+
 // --- Громкость ---
 const volumeSlider = document.getElementById("volumeSlider");
+
 volumeSlider.addEventListener("input", () => {
     audio.volume = parseFloat(volumeSlider.value);
     if (audio.volume > 0) lastVolume = audio.volume;
+    saveVolumeSettings();
 });
+
 function toggleMute() {
     if (audio.volume > 0) {
         lastVolume = audio.volume;
         audio.volume = 0;
         volumeSlider.value = 0;
+        saveVolumeSettings();
         showToast("🔇 Звук выключен");
     } else {
-        audio.volume = lastVolume;
-        volumeSlider.value = lastVolume;
+        audio.volume = lastVolume > 0 ? lastVolume : 1;
+        volumeSlider.value = audio.volume;
+        saveVolumeSettings();
         showToast("🔊 Звук включён");
     }
 }
@@ -694,11 +743,14 @@ document.addEventListener("keydown", (e) => {
             e.preventDefault();
             audio.volume = Math.min(1, audio.volume + 0.1);
             volumeSlider.value = audio.volume;
+            if (audio.volume > 0) lastVolume = audio.volume;
+            saveVolumeSettings();
             break;
         case "ArrowDown":
             e.preventDefault();
             audio.volume = Math.max(0, audio.volume - 0.1);
             volumeSlider.value = audio.volume;
+            saveVolumeSettings();
             break;
     }
 });
@@ -710,11 +762,11 @@ hint.innerHTML = "⌨ Space · ← → · M · L · C · ↑ ↓";
 document.body.appendChild(hint);
 
 // --- Инициализация ---
+applyVolumeSettings();   // ← восстановить громкость из localStorage
 updateUserNameLabel();
 renderLibrary();
 connectWS();
 
-// Если имени нет — предложим ввести сразу (но не блокируем)
 if (!getUserName()) {
     setTimeout(() => {
         if (!getUserName()) editUserName();
