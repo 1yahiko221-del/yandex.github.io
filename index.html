@@ -162,7 +162,7 @@
                     const info = document.createElement("div");
                     info.className = "info";
                     info.textContent = `${track.artist} — ${track.title} (${track.duration}с)`;
-                    info.onclick = () => playNow(track);
+                    info.onclick = () => addToQueue(track);
                     const addBtn = document.createElement("button");
                     addBtn.className = "small";
                     addBtn.textContent = "+ В очередь";
@@ -177,50 +177,14 @@
             }
         }
 
-        // --- Воспроизвести сразу ---
-        async function playNow(track) {
-            try {
-                const res = await fetch(`${API_BASE}/api/get_link`, {
-                    method: "POST",
-                    headers: { "Content-Type": "application/json" },
-                    body: JSON.stringify({ track_id: String(track.id) })
-                });
-                if (!res.ok) throw new Error(`HTTP ${res.status}`);
-                const data = await res.json();
-
-                const queueTrack = {
-                    id: track.id,
-                    title: track.title,
-                    artist: track.artist,
-                    url: data.url,
-                };
-                send({ type: "add_to_queue", track: queueTrack });
-            } catch (e) {
-                alert("Не удалось: " + e.message);
-            }
-        }
-
-        // --- Добавить в очередь ---
-        async function addToQueue(track) {
-            try {
-                const res = await fetch(`${API_BASE}/api/get_link`, {
-                    method: "POST",
-                    headers: { "Content-Type": "application/json" },
-                    body: JSON.stringify({ track_id: String(track.id) })
-                });
-                if (!res.ok) throw new Error(`HTTP ${res.status}`);
-                const data = await res.json();
-
-                const queueTrack = {
-                    id: track.id,
-                    title: track.title,
-                    artist: track.artist,
-                    url: data.url,
-                };
-                send({ type: "add_to_queue", track: queueTrack });
-            } catch (e) {
-                alert("Не удалось: " + e.message);
-            }
+        // --- Добавить в очередь (мгновенно, без fetch) ---
+        function addToQueue(track) {
+            send({
+                type: "add_to_queue",
+                track_id: String(track.id),
+                title: track.title,
+                artist: track.artist,
+            });
         }
 
         // --- Воспроизведение трека из очереди ---
@@ -236,7 +200,6 @@
             audio.play().catch(err => console.warn("Autoplay blocked:", err)).finally(() => { isSyncing = false; });
         }
 
-        // --- Следующий трек ---
         function nextTrack() {
             send({ type: "next_track" });
         }
@@ -256,7 +219,6 @@
                 info.className = "info";
                 info.textContent = `${i + 1}. ${track.artist} — ${track.title}`;
                 info.onclick = () => {
-                    // Переключиться на этот трек
                     send({ type: "play_track_manual", index: i });
                 };
                 const removeBtn = document.createElement("button");
