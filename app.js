@@ -228,7 +228,7 @@ function renderTracks(container, tracks, options = {}) {
 
         div.appendChild(actions);
 
-        // Единый обработчик кликов и drag
+        // Обработчик кликов и drag через единый pointer-механизм
         setupInteractions(div, i, {
             draggable,
             onClick: () => {
@@ -242,24 +242,23 @@ function renderTracks(container, tracks, options = {}) {
 }
 
 // --- Единый обработчик: клик vs drag ---
+// ВАЖНО: drag стартует ТОЛЬКО за ручку (.track-drag-handle) — и на ПК, и на тач.
+// Клик по телу трека / кнопкам больше не превращается в перетаскивание.
 function setupInteractions(el, index, { draggable, onClick }) {
     let startX = 0;
     let startY = 0;
     let dragging = false;
     let moved = false;
     let pointerId = null;
-    let longPressTimer = null;
 
-    const CLICK_THRESHOLD = 6;
-    const LONG_PRESS_MS = 300;
+    const CLICK_THRESHOLD = 10; // px — если палец сдвинулся меньше, это клик
 
     const onPointerDown = (e) => {
+        // ПКМ или средняя кнопка — игнорируем
         if (e.pointerType === "mouse" && e.button !== 0) return;
-        // Кнопки обрабатываются отдельно
-        if (e.target.closest("button")) return;
 
-        const isTouch = e.pointerType === "touch";
-        const isHandle = !!e.target.closest('[data-handle="1"]');
+        // Клик по кнопке (лайк / удалить / добавить) — не перехватываем
+        if (e.target.closest("button")) return;
 
         startX = e.clientX;
         startY = e.clientY;
@@ -267,24 +266,17 @@ function setupInteractions(el, index, { draggable, onClick }) {
         dragging = false;
         pointerId = e.pointerId;
 
-        if (draggable) {
-            if (isTouch) {
-                if (isHandle) beginDrag();
-                else longPressTimer = setTimeout(beginDrag, LONG_PRESS_MS);
-            } else {
-                if (isHandle) beginDrag();
-            }
+        // Drag возможен только за ручку
+        const isHandleStart = !!e.target.closest('[data-handle="1"]');
+        if (draggable && isHandleStart) {
+            dragging = true;
+            el.classList.add("dragging");
+            if (navigator.vibrate) navigator.vibrate(20);
         }
 
         document.addEventListener("pointermove", onPointerMove, { passive: false });
         document.addEventListener("pointerup", onPointerUp);
         document.addEventListener("pointercancel", onPointerUp);
-    };
-
-    const beginDrag = () => {
-        dragging = true;
-        el.classList.add("dragging");
-        if (navigator.vibrate) navigator.vibrate(20);
     };
 
     const onPointerMove = (e) => {
@@ -295,19 +287,15 @@ function setupInteractions(el, index, { draggable, onClick }) {
         const dist = Math.sqrt(dx * dx + dy * dy);
 
         if (!dragging) {
-            if (dist > CLICK_THRESHOLD) {
-                moved = true;
-                if (longPressTimer) {
-                    clearTimeout(longPressTimer);
-                    longPressTimer = null;
-                }
-            }
+            // Просто отмечаем, что пользователь сдвинул палец — тогда это не клик
+            if (dist > CLICK_THRESHOLD) moved = true;
             return;
         }
 
         e.preventDefault();
         moved = true;
 
+        // Подсветка цели
         const elemBelow = document.elementFromPoint(e.clientX, e.clientY);
         const trackBelow = elemBelow?.closest('.track');
         document.querySelectorAll('.track.drag-over').forEach(t => t.classList.remove('drag-over'));
@@ -323,12 +311,8 @@ function setupInteractions(el, index, { draggable, onClick }) {
         document.removeEventListener("pointerup", onPointerUp);
         document.removeEventListener("pointercancel", onPointerUp);
 
-        if (longPressTimer) {
-            clearTimeout(longPressTimer);
-            longPressTimer = null;
-        }
-
         if (dragging) {
+            // Завершаем drag
             el.classList.remove("dragging");
             document.querySelectorAll('.track.drag-over').forEach(t => t.classList.remove('drag-over'));
 
@@ -352,6 +336,7 @@ function setupInteractions(el, index, { draggable, onClick }) {
     };
 
     el.addEventListener("pointerdown", onPointerDown);
+    // Отключаем нативный drag у картинок
     el.addEventListener("dragstart", (e) => e.preventDefault());
 }
 
@@ -515,7 +500,7 @@ audio.addEventListener("play", () => {
 audio.addEventListener("pause", () => {
     playIcon.style.display = "block";
     pauseIcon.style.display = "none";
-    if (!isSyncing) send({ type: "pause" });
+    if (!isSyncing) send({ type: "pause", time: audio.currentTime });
 });
 audio.addEventListener("ended", () => send({ type: "track_ended" }));
 
