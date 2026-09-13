@@ -1,90 +1,194 @@
-<!doctype html>
+<!DOCTYPE html>
 <html lang="ru">
 <head>
-  <meta charset="UTF-8">
-  <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
-  <meta name="theme-color" content="#07080c">
-  <meta name="robots" content="noindex, nofollow">
-  <title>Sync Music — совместное прослушивание</title>
-  <link rel="stylesheet" href="style.css?v=12">
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <meta name="robots" content="noindex, nofollow">
+    <title>Sync Music</title>
+    <link rel="stylesheet" href="style.css?v=11">
 </head>
 <body>
-  <div class="ambient" aria-hidden="true"><div class="ambient-glow glow-a"></div><div class="ambient-glow glow-b"></div><div class="ambient-glow glow-c"></div><div class="grain"></div></div>
-  <div class="app-shell">
-    <header class="topbar glass">
-      <a class="brand" href="#" aria-label="Sync Music">
-        <span class="brand-mark"><span></span><span></span><span></span></span><span class="brand-text">Sync <b>Music</b></span>
-      </a>
-      <div class="search-wrap" id="searchWrap">
-        <label class="search-box" for="searchInput"><span class="search-symbol">⌕</span><input id="searchInput" class="search-input" placeholder="Найти трек, исполнителя…" autocomplete="off" maxlength="200"><button id="searchClear" class="icon-btn search-clear" type="button" aria-label="Очистить поиск" hidden>×</button></label>
-        <div id="searchResults" class="search-results" hidden></div>
-      </div>
-      <div class="top-actions">
-        <button id="roomButton" class="room-pill" type="button" aria-label="Открыть информацию о комнате"><span class="live-dot"></span><span id="roomNameTop">Комната</span><code id="roomIdDisplay"></code><span id="participantCount">1</span></button>
-        <button id="userBtn" class="avatar-btn" type="button" aria-label="Изменить имя"><span id="userAvatar">G</span><span id="userNameLabel">Гость</span></button>
-      </div>
-    </header>
+    <div class="bg-orbs">
+        <div class="orb orb-1"></div>
+        <div class="orb orb-2"></div>
+        <div class="orb orb-3"></div>
+    </div>
 
-    <main class="layout">
-      <aside class="sidebar glass">
-        <div class="sidebar-head"><div><span class="eyebrow">Совместная сессия</span><h2 id="roomNameSide">Комната</h2></div><span id="statusBadge" class="status-badge reconnecting">● Подключение</span></div>
-        <div class="room-card">
-          <div class="room-card-row"><span>ID комнаты</span><strong id="roomIdSide"></strong></div>
-          <div class="room-card-row"><span>Участники</span><strong id="participantCountSide">1</strong></div>
-          <div class="room-actions"><button id="copyRoomBtn" class="btn btn-primary" type="button">↗ Пригласить</button><button id="roomInfoBtn" class="btn btn-secondary" type="button">Настройки</button></div>
-        </div>
-        <nav class="side-nav" aria-label="Навигация">
-          <button class="nav-item active" data-view="home" type="button"><span>◉</span> Сейчас играет</button>
-          <button class="nav-item" data-view="queue" type="button"><span>≡</span> Очередь <em id="queueCount">0</em></button>
-          <button class="nav-item" data-view="library" type="button"><span>♥</span> Библиотека <em id="libraryCount">0</em></button>
-          <button class="nav-item" data-view="history" type="button"><span>◷</span> История</button>
-          <button class="nav-item" data-view="playlists" type="button"><span>▣</span> Плейлисты</button>
-          <button class="nav-item" data-view="chat" type="button"><span>☷</span> Чат <em id="chatCount">0</em></button>
-        </nav>
-        <div class="dj-card">
-          <div><span class="dj-kicker">DJ MODE</span><strong id="djStatus">Выключен</strong></div>
-          <button id="djToggle" class="switch" type="button" role="switch" aria-checked="false" aria-label="Включить DJ Mode"><span></span></button>
-        </div>
-        <div class="sidebar-foot"><span id="ownerLabel">DJ: —</span><button id="editNameSide" class="text-btn" type="button">Моё имя</button></div>
-      </aside>
-
-      <section class="content">
-        <section id="homeView" class="view active">
-          <div class="section-heading"><div><span class="eyebrow">LIVE • <span id="connectionText">Подключение</span></span><h1>Слушаем вместе</h1><p id="sessionSub">Добавьте музыку в очередь и включайте её синхронно.</p></div><button id="fullscreenBtn" class="round-btn" type="button" aria-label="Открыть полноэкранный плеер">⛶</button></div>
-          <article id="nowPlayingCard" class="now-playing glass">
-            <div class="now-copy"><span class="eyebrow">NOW PLAYING</span><h2 id="nowTitle">Ничего не играет</h2><p id="nowArtist">Добавьте первый трек через поиск</p><p id="nowAlbum" class="album-line"></p><div class="np-actions"><button id="likeCurrentBtn" class="icon-action" type="button" aria-label="Добавить в библиотеку">♡</button><button id="openFullscreenBtn" class="btn btn-secondary" type="button">Открыть плеер</button></div></div>
-            <div class="hero-cover-wrap"><div class="cover-sheen"></div><img id="heroCover" class="hero-cover" alt="Обложка текущего трека"></div>
-            <div class="player-main-controls">
-              <div class="progress-wrap"><div class="time-line"><span id="currentTime">0:00</span><span id="remainingTime">−0:00</span></div><div id="progressContainer" class="progress-container" role="slider" tabindex="0" aria-label="Позиция трека" aria-valuemin="0" aria-valuemax="100" aria-valuenow="0"><div id="progressBar" class="progress-bar"><div class="progress-thumb"></div></div></div><div class="time-line bottom-time"><span>0:00</span><span id="totalTime">0:00</span></div></div>
-              <div class="controls-row"><button id="prevBtn" class="control-btn" type="button" aria-label="Предыдущий">◀◀</button><button id="playPauseBtn" class="play-btn" type="button" aria-label="Играть или пауза"><span id="playIcon">▶</span><span id="pauseIcon" hidden>Ⅱ</span></button><button id="nextBtn" class="control-btn" type="button" aria-label="Следующий">▶▶</button><button id="shuffleBtn" class="control-btn mode-btn" type="button" aria-label="Перемешивание">⤨</button><button id="repeatBtn" class="control-btn mode-btn" type="button" aria-label="Повтор">↻</button><div class="volume"><button id="muteBtn" class="icon-btn" type="button" aria-label="Выключить звук">◖</button><input id="volumeSlider" type="range" min="0" max="1" step="0.01" value="1" aria-label="Громкость"></div></div>
+    <div class="app">
+        <header class="header fade-in">
+            <div class="logo">
+                <div class="logo-icon">
+                    <svg viewBox="0 0 24 24" width="28" height="28" fill="currentColor">
+                        <path d="M12 3v10.55c-.59-.34-1.27-.55-2-.55-2.21 0-4 1.79-4 4s1.79 4 4 4 4-1.79 4-4V7h4V3h-6z"/>
+                    </svg>
+                </div>
+                <h1>Sync Music</h1>
             </div>
-          </article>
 
-          <div class="quick-grid">
-            <section class="panel glass mini-panel"><div class="panel-title"><div><span class="eyebrow">UP NEXT</span><h3>Следующие треки</h3></div><button class="text-btn" data-view-link="queue" type="button">Вся очередь</button></div><div id="queuePreview" class="track-list compact"></div></section>
-            <section class="panel glass mini-panel"><div class="panel-title"><div><span class="eyebrow">ROOM CHAT</span><h3>Что происходит</h3></div><button class="text-btn" data-view-link="chat" type="button">Открыть чат</button></div><div id="chatPreview" class="chat-preview"></div></section>
-          </div>
+            <!-- Поиск в хедере с выпадашкой -->
+            <div class="search-wrap" id="searchWrap">
+                <div class="search-box">
+                    <svg class="search-icon" viewBox="0 0 24 24" width="18" height="18" fill="currentColor">
+                        <path d="M15.5 14h-.79l-.28-.27C15.41 12.59 16 11.11 16 9.5 16 5.91 13.09 3 9.5 3S3 5.91 3 9.5 5.91 16 9.5 16c1.61 0 3.09-.59 4.23-1.57l.27.28v.79l5 4.99L20.49 19l-4.99-5zm-6 0C7.01 14 5 11.99 5 9.5S7.01 5 9.5 5 14 7.01 14 9.5 11.99 14 9.5 14z"/>
+                    </svg>
+                    <input id="searchInput" class="search-input" placeholder="Поиск треков…" autocomplete="off">
+                    <button class="search-clear" id="searchClear" onclick="clearSearch()" title="Очистить" style="display:none;">
+                        <svg viewBox="0 0 24 24" width="16" height="16" fill="currentColor">
+                            <path d="M19 6.41L17.59 5 12 10.59 6.41 5 5 6.41 10.59 12 5 17.59 6.41 19 12 13.41 17.59 19 19 17.59 13.41 12z"/>
+                        </svg>
+                    </button>
+                </div>
+                <div class="search-results glass" id="searchResults" style="display:none;"></div>
+            </div>
+
+            <div class="room-info glass">
+                <span>Комната: <strong id="roomIdDisplay"></strong></span>
+                <button class="btn btn-ghost btn-small" onclick="copyRoomLink()">
+                    <svg viewBox="0 0 24 24" width="14" height="14" fill="currentColor">
+                        <path d="M16 1H4c-1.1 0-2 .9-2 2v14h2V3h12V1zm3 4H8c-1.1 0-2 .9-2 2v14c0 1.1.9 2 2 2h11c1.1 0 2-.9 2-2V7c0-1.1-.9-2-2-2zm0 16H8V7h11v14z"/>
+                    </svg>
+                    Копировать
+                </button>
+                <button class="btn btn-ghost btn-small user-btn" id="userBtn" onclick="editUserName()" title="Сменить имя">
+                    <svg viewBox="0 0 24 24" width="14" height="14" fill="currentColor">
+                        <path d="M12 12c2.21 0 4-1.79 4-4s-1.79-4-4-4-4 1.79-4 4 1.79 4 4 4zm0 2c-2.67 0-8 1.34-8 4v2h16v-2c0-2.66-5.33-4-8-4z"/>
+                    </svg>
+                    <span id="userNameLabel">Гость</span>
+                </button>
+            </div>
+        </header>
+
+        <div class="tabs fade-in" style="animation-delay: 0.2s;">
+            <button id="tabQueue" class="tab active" onclick="switchTab('queue')">
+                <svg viewBox="0 0 24 24" width="16" height="16" fill="currentColor">
+                    <path d="M3 6h18v2H3zm0 5h18v2H3zm0 5h12v2H3z"/>
+                </svg>
+                Очередь
+            </button>
+            <button id="tabLibrary" class="tab" onclick="switchTab('library')">
+                <svg viewBox="0 0 24 24" width="16" height="16" fill="currentColor">
+                    <path d="M12 21.35l-1.45-1.32C5.4 15.36 2 12.28 2 8.5 2 5.42 4.42 3 7.5 3c1.74 0 3.41.81 4.5 2.09C13.09 3.81 14.76 3 16.5 3 19.58 3 22 5.42 22 8.5c0 3.78-3.4 6.86-8.55 11.54L12 21.35z"/>
+                </svg>
+                Библиотека
+            </button>
+        </div>
+
+        <section id="queueView" class="section glass fade-in" style="animation-delay: 0.3s;">
+            <div id="queue" class="track-list">
+                <div class="empty">
+                    <svg viewBox="0 0 24 24" width="48" height="48" fill="currentColor" opacity="0.3">
+                        <path d="M3 6h18v2H3zm0 5h18v2H3zm0 5h12v2H3z"/>
+                    </svg>
+                    <p>Очередь пуста</p>
+                    <span>Добавь треки через поиск сверху</span>
+                </div>
+            </div>
         </section>
 
-        <section id="queueView" class="view"><div class="section-heading"><div><span class="eyebrow">ROOM QUEUE</span><h1>Очередь</h1><p>Общий порядок воспроизведения для всей комнаты.</p></div><div class="heading-actions"><button id="shuffleQueueBtn" class="btn btn-secondary" type="button">⤨ Перемешать</button></div></div><section class="panel glass"><div id="queue" class="track-list"></div></section></section>
-        <section id="libraryView" class="view"><div class="section-heading"><div><span class="eyebrow">YOUR FAVORITES</span><h1>Библиотека</h1><p>Личные лайки хранятся на этом устройстве.</p></div><button id="libraryQueueBtn" class="btn btn-primary" type="button">＋ Добавить всё</button></div><section class="panel glass"><div id="library" class="track-list"></div></section></section>
-        <section id="historyView" class="view"><div class="section-heading"><div><span class="eyebrow">YOUR LISTENING</span><h1>История</h1><p>Последние 100 запущенных треков на этом устройстве.</p></div><button id="clearHistoryBtn" class="btn btn-secondary" type="button">Очистить</button></div><section class="panel glass"><div id="history" class="track-list"></div></section></section>
-        <section id="playlistsView" class="view"><div class="section-heading"><div><span class="eyebrow">YOUR LIBRARY</span><h1>Плейлисты</h1><p>Личные плейлисты сохраняются локально и не меняют общую очередь.</p></div><button id="newPlaylistBtn" class="btn btn-primary" type="button">＋ Новый плейлист</button></div><div id="playlistGrid" class="playlist-grid"></div><section id="playlistDetail" class="playlist-detail panel glass" hidden></section></section>
-        <section id="chatView" class="view"><div class="section-heading"><div><span class="eyebrow">ROOM CHAT</span><h1>Чат комнаты</h1><p>Общайтесь с участниками через то же WebSocket-соединение.</p></div></div><section class="chat-panel glass"><div id="chatMessages" class="chat-messages"></div><form id="chatForm" class="chat-form"><input id="chatInput" maxlength="500" autocomplete="off" placeholder="Написать сообщение…"><button class="btn btn-primary" type="submit">Отправить</button></form></section></section>
-      </section>
-    </main>
-  </div>
+        <section id="libraryView" class="section glass" style="display: none;">
+            <div id="library" class="track-list">
+                <div class="empty">
+                    <svg viewBox="0 0 24 24" width="48" height="48" fill="currentColor" opacity="0.3">
+                        <path d="M12 21.35l-1.45-1.32C5.4 15.36 2 12.28 2 8.5 2 5.42 4.42 3 7.5 3c1.74 0 3.41.81 4.5 2.09C13.09 3.81 14.76 3 16.5 3 19.58 3 22 5.42 22 8.5c0 3.78-3.4 6.86-8.55 11.54L12 21.35z"/>
+                    </svg>
+                    <p>Библиотека пуста</p>
+                    <span>Лайкай треки, чтобы сохранить их</span>
+                </div>
+            </div>
+            <button class="btn btn-secondary" onclick="addAllLibraryToQueue()" style="margin-top: 12px;">
+                <svg viewBox="0 0 24 24" width="16" height="16" fill="currentColor">
+                    <path d="M19 13h-6v6h-2v-6H5v-2h6V5h2v6h6v2z"/>
+                </svg>
+                Добавить всё в очередь
+            </button>
+        </section>
+    </div>
 
-  <div id="miniPlayer" class="mini-player glass" hidden><button id="miniExpand" class="mini-main" type="button"><img id="miniCover" alt=""><span><b id="miniTitle">—</b><small id="miniArtist"></small></span></button><div class="mini-progress"><span id="miniProgress"></span></div><button id="miniPlay" class="mini-play" type="button" aria-label="Играть или пауза">▶</button><button id="miniNext" class="mini-next" type="button" aria-label="Следующий">▶▶</button></div>
+    <!-- Плеер -->
+    <div id="player" class="player">
+        <div class="player-bg"></div>
+        <div class="player-inner">
+            <button class="player-collapse" id="playerCollapse" onclick="toggleCollapse()" title="Свернуть">
+                <svg viewBox="0 0 24 24" width="16" height="16" fill="currentColor">
+                    <path d="M7.41 8.59L12 13.17l4.59-4.58L18 10l-6 6-6-6z"/>
+                </svg>
+            </button>
+            <div class="player-header">
+                <div class="player-cover-wrap">
+                    <img id="playerCover" class="player-cover" src="" alt="">
+                    <div class="player-cover-glow"></div>
+                </div>
+                <div class="player-info">
+                    <div id="nowPlaying" class="player-title">—</div>
+                    <div id="playerArtist" class="player-artist"></div>
+                </div>
+                <button class="player-like" id="playerLikeBtn" onclick="likeCurrentTrack()" title="В библиотеку">
+                    <svg viewBox="0 0 24 24" width="22" height="22" fill="none" stroke="currentColor" stroke-width="2">
+                        <path d="M20.84 4.61a5.5 5.5 0 0 0-7.78 0L12 5.67l-1.06-1.06a5.5 5.5 0 0 0-7.78 7.78l1.06 1.06L12 21.23l7.78-7.78 1.06-1.06a5.5 5.5 0 0 0 0-7.78z"/>
+                    </svg>
+                </button>
+            </div>
 
-  <div id="fullscreenPlayer" class="fullscreen-player" hidden><div class="fullscreen-bg" id="fullscreenBg"></div><button id="fullscreenClose" class="close-btn" type="button" aria-label="Закрыть">×</button><div class="full-inner"><span class="eyebrow">SYNC SESSION</span><img id="fullCover" class="full-cover" alt=""><h2 id="fullTitle">—</h2><p id="fullArtist">—</p><div class="full-progress"><div class="time-line"><span id="fullCurrent">0:00</span><span id="fullRemaining">−0:00</span></div><div id="fullProgressContainer" class="progress-container"><div id="fullProgressBar" class="progress-bar"><div class="progress-thumb"></div></div></div></div><div class="full-controls"><button id="fullPrev" class="control-btn">◀◀</button><button id="fullPlay" class="play-btn">▶</button><button id="fullNext" class="control-btn">▶▶</button></div><div class="full-modes"><button id="fullShuffle" class="btn btn-secondary">⤨ Shuffle</button><button id="fullRepeat" class="btn btn-secondary">↻ Repeat</button></div></div></div>
+            <div class="progress-container" id="progressContainer">
+                <div class="progress-bar" id="progressBar">
+                    <div class="progress-thumb"></div>
+                </div>
+            </div>
+            <div class="time-row">
+                <span id="currentTime">0:00</span>
+                <span id="totalTime">0:00</span>
+            </div>
 
-  <div id="roomModal" class="modal-backdrop" hidden><div class="modal glass"><div class="modal-head"><div><span class="eyebrow">ROOM</span><h3>Комната и участники</h3></div><button class="close-btn small" data-close="roomModal">×</button></div><div class="invite-box"><strong id="inviteRoomId"></strong><button id="copyInviteBtn" class="btn btn-primary">Копировать ссылку</button></div><div id="participants" class="participants"></div><div class="modal-actions"><button id="renameRoomBtn" class="btn btn-secondary">Название комнаты</button><button id="modalDjToggle" class="btn btn-primary">DJ Mode</button></div></div></div>
-  <div id="nameModal" class="modal-backdrop" hidden><div class="modal glass"><span class="eyebrow">PROFILE</span><h3>Как тебя зовут?</h3><p class="modal-sub">Имя видно участникам комнаты и в истории действий.</p><input id="nameInput" class="input" maxlength="24" placeholder="Например, Аня" autocomplete="off"><div class="modal-actions"><button class="btn btn-secondary" data-close="nameModal">Отмена</button><button id="saveNameBtn" class="btn btn-primary">Сохранить</button></div></div></div>
-  <div id="playlistModal" class="modal-backdrop" hidden><div class="modal glass"><div class="modal-head"><div><span class="eyebrow">PLAYLIST</span><h3 id="playlistModalTitle">Новый плейлист</h3></div><button class="close-btn small" data-close="playlistModal">×</button></div><input id="playlistNameInput" class="input" maxlength="80" placeholder="Название"><textarea id="playlistDescInput" class="input textarea" maxlength="240" placeholder="Описание (необязательно)"></textarea><div class="modal-actions"><button class="btn btn-secondary" data-close="playlistModal">Отмена</button><button id="savePlaylistBtn" class="btn btn-primary">Сохранить</button></div></div></div>
-  <div id="playlistPicker" class="modal-backdrop" hidden><div class="modal glass"><div class="modal-head"><div><span class="eyebrow">ADD TO PLAYLIST</span><h3>Выберите плейлист</h3></div><button class="close-btn small" data-close="playlistPicker">×</button></div><div id="playlistPickerList" class="picker-list"></div><button id="pickerNewPlaylist" class="btn btn-secondary full-btn">＋ Создать плейлист</button></div></div>
-  <div id="toast" class="toast" role="status" aria-live="polite"></div>
-  <audio id="audio" preload="metadata"></audio>
-  <script src="app.js?v=12"></script>
+            <div class="controls-row">
+                <button class="ctrl-btn" onclick="prevTrack()" title="Предыдущий (←)">
+                    <svg viewBox="0 0 24 24" width="22" height="22" fill="currentColor">
+                        <path d="M6 6h2v12H6zm3.5 6l8.5 6V6z"/>
+                    </svg>
+                </button>
+                <button class="play-btn" id="playPauseBtn" onclick="togglePlay()" title="Играть / Пауза (Space)">
+                    <svg id="playIcon" viewBox="0 0 24 24" width="24" height="24" fill="currentColor">
+                        <path d="M8 5v14l11-7z"/>
+                    </svg>
+                    <svg id="pauseIcon" viewBox="0 0 24 24" width="24" height="24" fill="currentColor" style="display:none;">
+                        <path d="M6 19h4V5H6v14zm8-14v14h4V5h-4z"/>
+                    </svg>
+                </button>
+                <button class="ctrl-btn" onclick="nextTrack()" title="Следующий (→)">
+                    <svg viewBox="0 0 24 24" width="22" height="22" fill="currentColor">
+                        <path d="M6 18l8.5-6L6 6v12zM16 6v12h2V6h-2z"/>
+                    </svg>
+                </button>
+                <button class="ctrl-btn mode-btn" id="shuffleBtn" onclick="toggleShuffle()" title="Перемешивание (S)">🔀</button>
+                <button class="ctrl-btn mode-btn" id="repeatBtn" onclick="cycleRepeat()" title="Повтор (R)">🔁</button>
+
+                <div class="volume-container">
+                    <span class="volume-icon" id="volumeIcon" onclick="toggleMute()" title="Звук (M)">
+                        <svg viewBox="0 0 24 24" width="18" height="18" fill="currentColor">
+                            <path d="M3 9v6h4l5 5V4L7 9H3zm13.5 3c0-1.77-1.02-3.29-2.5-4.03v8.05c1.48-.73 2.5-2.25 2.5-4.02zM14 3.23v2.06c2.89.86 5 3.54 5 6.71s-2.11 5.85-5 6.71v2.06c4.01-.91 7-4.49 7-8.77s-2.99-7.86-7-8.77z"/>
+                        </svg>
+                    </span>
+                    <input type="range" class="volume-slider" id="volumeSlider" min="0" max="1" step="0.01" value="1">
+                </div>
+            </div>
+        </div>
+        <audio id="audio"></audio>
+    </div>
+
+    <div id="nameModal" class="modal-backdrop" style="display:none;">
+        <div class="modal glass">
+            <h3 class="modal-title">Как тебя зовут?</h3>
+            <p class="modal-sub">Имя будет видно рядом с треками, которые ты добавил в очередь.</p>
+            <input id="nameInput" class="input" maxlength="24" placeholder="Например, Аня" autocomplete="off">
+            <div class="modal-actions">
+                <button class="btn btn-secondary" onclick="closeNameModal()">Отмена</button>
+                <button class="btn btn-primary" onclick="saveName()">Сохранить</button>
+            </div>
+        </div>
+    </div>
+
+    <div id="toast" class="toast"></div>
+    <div id="status" class="status">Подключение...</div>
+
+    <script src="app.js?v=11"></script>
 </body>
 </html>
