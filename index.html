@@ -5,7 +5,7 @@
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
     <meta name="robots" content="noindex, nofollow">
     <title>Sync Music</title>
-    <link rel="stylesheet" href="style.css?v=9">
+    <link rel="stylesheet" href="style.css?v=10">
 </head>
 <body>
     <div class="bg-orbs">
@@ -158,6 +158,8 @@
                         <path d="M6 18l8.5-6L6 6v12zM16 6v12h2V6h-2z"/>
                     </svg>
                 </button>
+                <button class="ctrl-btn mode-btn" id="shuffleBtn" onclick="toggleShuffle()" title="Перемешивание (S)">🔀</button>
+                <button class="ctrl-btn mode-btn" id="repeatBtn" onclick="cycleRepeat()" title="Повтор (R)">🔁</button>
 
                 <div class="volume-container">
                     <span class="volume-icon" id="volumeIcon" onclick="toggleMute()" title="Звук (M)">
@@ -187,6 +189,6 @@
     <div id="toast" class="toast"></div>
     <div id="status" class="status">Подключение...</div>
 
-    <script src="app.js?v=8"></script>
+    <script src="app.js?v=10"></script>
 </body>
 </html>
