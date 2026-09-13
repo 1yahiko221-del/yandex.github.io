@@ -272,9 +272,16 @@ function renderMini()
 }
 function updateLike()
 {
-  const liked=currentTrack&&getLibrary().some(x=>String(x.id)===String(currentTrack.id));
-  $("likeCurrentBtn").textContent=liked?"♥":"♡";
-  $("likeCurrentBtn").classList.toggle("liked",!!liked)
+  const liked=!!(currentTrack&&getLibrary().some(x=>String(x.id)===String(currentTrack.id)));
+
+  ["likeCurrentBtn","fullLike"].forEach(id=>
+  {
+    const button=$(id);
+    if(!button)return;
+    button.textContent=liked?"♥":"♡";
+    button.classList.toggle("liked",liked);
+    button.setAttribute("aria-label",liked?"Удалить из библиотеки":"Добавить в библиотеку");
+  });
 }
 function setDynamicColor(url)
 {
@@ -730,7 +737,8 @@ function toggleLibrary(t)
   }
   saveLibrary(a);
   updateLike();
-  renderQueue()
+  renderQueue();
+  renderLibrary()
 }
 function getHistory()
 {
@@ -841,6 +849,7 @@ function savePlaylists(v)
   localStorage.setItem(PLAYLIST_KEY,JSON.stringify(v))
 }
 let editingPlaylistId=null;
+let pendingPlaylistTrack=null;
 function playlistArt(p)
 {
   return p.tracks?.slice(0,4).map(t=>t.cover).filter(Boolean)||[]
@@ -891,14 +900,28 @@ $("savePlaylistBtn").onclick=()=>
     if(p)
     {
       p.name=n;
-      p.description=$("playlistDescInput").value.trim()
+      p.description=$("playlistDescInput").value.trim();
     }
   }
-  else ps.unshift(
+  else
   {
-    id:crypto.randomUUID(),name:n,description:$("playlistDescInput").value.trim(),created_at:new Date().toISOString(),tracks:[]
+    const playlist=
+    {
+      id:crypto.randomUUID(),
+      name:n,
+      description:$("playlistDescInput").value.trim(),
+      created_at:new Date().toISOString(),
+      tracks:[]
+    };
+
+    if(pendingPlaylistTrack)
+    {
+      playlist.tracks.push({...pendingPlaylistTrack});
+      pendingPlaylistTrack=null;
+    }
+
+    ps.unshift(playlist);
   }
-  );
   savePlaylists(ps);
   $("playlistModal").hidden=true;
   renderPlaylists();
@@ -907,11 +930,12 @@ $("savePlaylistBtn").onclick=()=>
 ;
 function openPlaylistPicker(track)
 {
+  pendingPlaylistTrack=track?{...track}:null;
   const ps=getPlaylists();
   if(!ps.length)
   {
     openPlaylistModal();
-    toast("Сначала создай плейлист");
+    toast("Создай плейлист — трек добавится автоматически");
     return
   }
   const c=$("playlistPickerList");
@@ -929,6 +953,7 @@ function openPlaylistPicker(track)
       }
       );
       savePlaylists(ps);
+      pendingPlaylistTrack=null;
       $("playlistPicker").hidden=true;
       renderPlaylists();
       toast(`Добавлено в «${p.name}»`)
@@ -1194,13 +1219,35 @@ function openFull()
 {
   if(!currentTrack)return;
   $("fullscreenPlayer").hidden=false;
+  document.body.classList.add("fullscreen-open");
+  document.documentElement.classList.add("fullscreen-open");
   document.body.style.overflow="hidden";
-  $("fullPlay").textContent=$("audio").paused?"▶":"Ⅱ"
+  $("fullPlay").textContent=$("audio").paused?"▶":"Ⅱ";
+  updateLike();
+  syncVolumeUI();
 }
 function closeFull()
 {
   $("fullscreenPlayer").hidden=true;
-  document.body.style.overflow=""
+  document.body.classList.remove("fullscreen-open");
+  document.documentElement.classList.remove("fullscreen-open");
+  document.body.style.overflow="";
+}
+
+function syncVolumeUI()
+{
+  const value=Number($("audio").volume)||0;
+  $("volumeSlider").value=String(value);
+  $("fullVolumeSlider").value=String(value);
+
+  const muted=value===0;
+  ["muteBtn","fullMute"].forEach(id=>
+  {
+    const button=$(id);
+    if(!button)return;
+    button.textContent=muted?"◕":"◖";
+    button.setAttribute("aria-label",muted?"Включить звук":"Выключить звук");
+  });
 }
 function openName()
 {
@@ -1274,8 +1321,16 @@ function bind()
   $("editNameSide").onclick=openName;
   $("saveNameBtn").onclick=saveName;
   $("newPlaylistBtn").onclick=()=>openPlaylistModal();
+  $("pickerNewPlaylist").onclick=()=>
+  {
+    $("playlistPicker").hidden=true;
+    openPlaylistModal();
+  };
   $("libraryQueueBtn").onclick=addAllLibrary;
   $("likeCurrentBtn").onclick=()=>currentTrack&&toggleLibrary(currentTrack);
+  $("addCurrentPlaylistBtn").onclick=()=>currentTrack&&openPlaylistPicker(currentTrack);
+  $("fullLike").onclick=()=>currentTrack&&toggleLibrary(currentTrack);
+  $("fullPlaylist").onclick=()=>currentTrack&&openPlaylistPicker(currentTrack);
   $("playPauseBtn").onclick=togglePlay;
   $("nextBtn").onclick=next;
   $("prevBtn").onclick=prev;
@@ -1306,28 +1361,49 @@ function bind()
     toast("История очищена")
   }
   ;
-  $("volumeSlider").oninput=e=>
+  const setVolume=value=>
   {
-    audio.volume=+e.target.value;
-    localStorage.setItem(VOLUME_KEY,audio.volume);
-    localStorage.setItem(MUTED_KEY,audio.volume===0?"1":"0")
-  }
-  ;
-  $("muteBtn").onclick=()=>
-  {
-    if(audio.volume>0)
+    const volume=Math.max(0,Math.min(1,Number(value)||0));
+    audio.volume=volume;
+    if(volume>0)
     {
-      localStorage.setItem(VOLUME_KEY,audio.volume);
-      audio.volume=0
+      localStorage.setItem(VOLUME_KEY,String(volume));
+      localStorage.setItem(MUTED_KEY,"0");
     }
     else
     {
-      audio.volume=+(localStorage.getItem(VOLUME_KEY)||1);
-      audio.volume=Math.max(.01,audio.volume)
+      localStorage.setItem(MUTED_KEY,"1");
     }
-    $("volumeSlider").value=audio.volume
-  }
-  ;
+    syncVolumeUI();
+  };
+
+  $("volumeSlider").oninput=e=>setVolume(e.target.value);
+  $("fullVolumeSlider").oninput=e=>setVolume(e.target.value);
+
+  const toggleMute=()=>
+  {
+    if(audio.volume>0)
+    {
+      localStorage.setItem(VOLUME_KEY,String(audio.volume));
+      audio.volume=0;
+      localStorage.setItem(MUTED_KEY,"1");
+    }
+    else
+    {
+      const saved=Number(localStorage.getItem(VOLUME_KEY));
+      audio.volume=Math.max(.05,Math.min(1,Number.isFinite(saved)&&saved>0?saved:1));
+      localStorage.setItem(MUTED_KEY,"0");
+    }
+    syncVolumeUI();
+  };
+
+  $("muteBtn").onclick=toggleMute;
+  $("fullMute").onclick=toggleMute;
+  $("fullscreenPlayer").addEventListener("click",e=>
+  {
+    if(e.target===$("fullscreenPlayer")||e.target===$("fullscreenBg"))closeFull();
+  });
+
   document.querySelectorAll("[data-close]").forEach(b=>b.onclick=()=>$(b.dataset.close).hidden=true);
   document.querySelectorAll(".modal-backdrop").forEach(b=>b.addEventListener("click",e=>
   {
@@ -1349,8 +1425,8 @@ function bind()
       e.preventDefault();
       togglePlay()
     }
-    if(e.key==="ArrowRight")next();
-    if(e.key==="ArrowLeft")prev();
+    if(e.key==="ArrowRight"&&!e.target.closest(".progress-container"))next();
+    if(e.key==="ArrowLeft"&&!e.target.closest(".progress-container"))prev();
     if(e.key.toLowerCase()==="m")$("muteBtn").click()
   }
   );
@@ -1398,7 +1474,9 @@ function init()
   $("editNameSide").textContent=n||"Моё имя";
   audio.volume=localStorage.getItem(MUTED_KEY)==="1"?0:+(localStorage.getItem(VOLUME_KEY)||1);
   $("volumeSlider").value=audio.volume;
+  $("fullVolumeSlider").value=audio.volume;
   bind();
+  syncVolumeUI();
   renderAll();
   setupMiniObserver();
   connect();
