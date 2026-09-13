@@ -908,10 +908,23 @@ button
   white-space:nowrap;
   margin-top:2px
 }
-.track-meta
+.track-added-by
 {
   font-size:10px;
-  color:#656d7b
+  color:#59616f;
+  overflow:hidden;
+  text-overflow:ellipsis;
+  white-space:nowrap;
+  margin-top:2px
+}
+.track-meta
+{
+  min-width:42px;
+  text-align:right;
+  font-size:10px;
+  color:#8b93a1;
+  font-variant-numeric:tabular-nums;
+  white-space:nowrap
 }
 .track-actions
 {
@@ -941,6 +954,30 @@ button
   font-size:16px;
   cursor:grab;
   padding:8px
+}
+.queue-track
+{
+  cursor:grab;
+}
+.queue-track:active
+{
+  cursor:grabbing;
+}
+.queue-status
+{
+  display:inline-flex;
+  align-items:center;
+  min-height:30px;
+  padding:0 8px;
+  border-radius:9px;
+  background:rgba(255,255,255,.035);
+  color:#687181;
+  font-size:9px;
+  white-space:nowrap;
+}
+.remove-track
+{
+  color:#ff7584;
 }
 .compact .track
 {
@@ -1819,7 +1856,12 @@ button
   }
   .track-meta
   {
-    display:none
+    min-width:38px;
+    font-size:9px;
+  }
+  .queue-status
+  {
+    display:none;
   }
   .section-heading p
   {
