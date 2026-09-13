@@ -2281,3 +2281,308 @@ function init()
   if(sharedPlaylistFromUrl)setTimeout(()=>openSharedPlaylist(sharedPlaylistFromUrl),900);
 }
 init();
+
+
+/* ========================================================================
+   Sync Music v6 — final interaction fixes
+   ======================================================================== */
+
+function updateRoomNameUI(nameValue) {
+  const value = String(nameValue || "Комната").trim() || "Комната";
+  ["roomNameTop", "roomNameSide"].forEach(id => {
+    const node = $(id);
+    if (node) node.textContent = value;
+  });
+  const roomTitle = $("inviteRoomId");
+  if (roomTitle) roomTitle.textContent = `${value} · ${roomId}`;
+}
+
+const handleMessageV6 = handleMessage;
+handleMessage = function(m) {
+  if (m.type === "full_state" && m.room_name) {
+    updateRoomNameUI(m.room_name);
+  }
+  if (m.type === "room_renamed") {
+    updateRoomNameUI(m.name);
+    toast(`Название комнаты: ${m.name}`);
+    return;
+  }
+  if (m.type === "reaction_update") {
+    const target = chatMessages.find(x => String(x.id) === String(m.message_id));
+    if (target) {
+      target.reactions = m.reactions || {};
+      renderChat();
+    }
+    return;
+  }
+  if (m.type === "reaction_self") {
+    const target = chatMessages.find(x => String(x.id) === String(m.message_id));
+    if (target) {
+      target.my_reaction = m.active ? m.reaction : "";
+      renderChat();
+    }
+    return;
+  }
+  handleMessageV6(m);
+};
+
+/* Shuffle/repeat labels and visual state are explicit, so it is obvious when active. */
+function renderModesV6() {
+  const shuffle = $("shuffleBtn");
+  const repeatButton = $("repeatBtn");
+  const fullShuffle = $("fullShuffle");
+  const fullRepeat = $("fullRepeat");
+
+  [shuffle, repeatButton, fullShuffle, fullRepeat].forEach(b => b?.classList.remove("active"));
+
+  if (shuffle) {
+    shuffle.classList.toggle("active", shuffleMode);
+    shuffle.textContent = shuffleMode ? "⤨ Вкл" : "⤨";
+    shuffle.title = shuffleMode ? "Перемешивание включено" : "Включить перемешивание";
+    shuffle.setAttribute("aria-pressed", String(shuffleMode));
+  }
+
+  const repeatLabels = { off: "↻", all: "↻ Все", one: "↻ 1" };
+  if (repeatButton) {
+    repeatButton.classList.toggle("active", repeatMode !== "off");
+    repeatButton.textContent = repeatLabels[repeatMode] || "↻";
+    repeatButton.title = repeatMode === "off" ? "Повтор выключен" : repeatMode === "all" ? "Повтор всей очереди" : "Повтор текущего трека";
+    repeatButton.setAttribute("aria-pressed", String(repeatMode !== "off"));
+  }
+  if (fullShuffle) {
+    fullShuffle.classList.toggle("active", shuffleMode);
+    fullShuffle.textContent = shuffleMode ? "⤨ Перемешивание: вкл" : "⤨ Перемешивание: выкл";
+    fullShuffle.setAttribute("aria-pressed", String(shuffleMode));
+  }
+  if (fullRepeat) {
+    fullRepeat.classList.toggle("active", repeatMode !== "off");
+    fullRepeat.textContent = repeatMode === "off" ? "↻ Повтор: выкл" : repeatMode === "all" ? "↻ Повтор: все" : "↻ Повтор: трек";
+    fullRepeat.setAttribute("aria-pressed", String(repeatMode !== "off"));
+  }
+
+  const dj = $("djStatus");
+  if (dj) dj.textContent = djMode ? "Включён" : "Выключен";
+  $("djToggle")?.setAttribute("aria-checked", String(djMode));
+  if ($("djToggle")) $("djToggle").disabled = !isOwner;
+  if ($("modalDjToggle")) $("modalDjToggle").disabled = !isOwner;
+  if ($("djToggle")) $("djToggle").title = isOwner ? "Переключить DJ Mode" : "Только владелец комнаты";
+}
+renderModes = renderModesV6;
+
+function toggleShuffleV6() {
+  if (djMode && !isOwner) {
+    toast("DJ Mode: менять режим может только владелец");
+    return;
+  }
+  const nextValue = !shuffleMode;
+  shuffleMode = nextValue;
+  renderModesV6();
+  send({ type: "set_shuffle", enabled: nextValue });
+  toast(nextValue ? "⤨ Перемешивание включено" : "⤨ Перемешивание выключено");
+}
+toggleShuffle = toggleShuffleV6;
+
+function repeatV6() {
+  if (djMode && !isOwner) {
+    toast("DJ Mode: менять режим может только владелец");
+    return;
+  }
+  const modes = ["off", "all", "one"];
+  repeatMode = modes[(modes.indexOf(repeatMode) + 1) % modes.length];
+  renderModesV6();
+  send({ type: "set_repeat", mode: repeatMode });
+  toast(repeatMode === "off" ? "↻ Повтор выключен" : repeatMode === "all" ? "↻ Повтор очереди" : "↻ Повтор трека");
+}
+repeat = repeatV6;
+
+/* Queue page without checkboxes/selection. */
+function renderQueueV6() {
+  const c = $("queue");
+  const preview = $("queuePreview");
+  if (!c) return;
+  $("queueCount").textContent = localQueue.length;
+  selectedQueue.clear();
+
+  if (!localQueue.length) {
+    c.innerHTML = '<div class="empty"><strong>Очередь пока пуста</strong>Ищите музыку сверху и добавляйте её в комнату.</div>';
+    if (preview) preview.innerHTML = '<div class="empty">Добавьте первый трек через поиск.</div>';
+    return;
+  }
+
+  c.innerHTML = "";
+  localQueue.forEach((track, index) => c.appendChild(trackElement(track, index, true, false)));
+
+  if (preview) {
+    preview.innerHTML = "";
+    localQueue.forEach((track, index) => {
+      if (index !== localCurrentIndex && preview.children.length < 4) {
+        preview.appendChild(trackElement(track, index, true, true));
+      }
+    });
+  }
+}
+renderQueue = renderQueueV6;
+
+/* Put duration directly into the metadata block beside the track information. */
+const trackElementV6Base = trackElement;
+trackElement = function(t, i, full = true, compact = false) {
+  const el = trackElementV6Base(t, i, full, compact);
+  const meta = el.querySelector(".track-meta");
+  const info = el.querySelector(".track-info");
+  if (meta && info) {
+    const duration = meta.textContent.trim();
+    info.dataset.duration = duration;
+    meta.remove();
+  }
+  return el;
+};
+
+/* Playlist/other lists still get their duration beside the title as well. */
+
+function renameRoomV6() {
+  if (!isOwner) {
+    toast("Переименовать комнату может только владелец");
+    return;
+  }
+  const current = $("roomNameTop")?.textContent?.trim() || "Комната";
+  const value = prompt("Новое название комнаты", current);
+  if (value === null) return;
+  const trimmed = value.trim().slice(0, 60);
+  if (!trimmed) {
+    toast("Название не может быть пустым");
+    return;
+  }
+  send({ type: "rename_room", name: trimmed });
+}
+
+/* Reply stays functional, but the old large replyBar is gone. */
+function setReplyV6(message) {
+  replyingTo = message || null;
+  const input = $("chatInput");
+  if (input) {
+    input.placeholder = replyingTo ? `Ответить ${replyingTo.name || "участнику"}…` : "Написать сообщение…";
+    input.focus();
+  }
+}
+function renderReplyBar() {
+  const bar = $("replyBar");
+  if (bar) {
+    bar.hidden = true;
+    bar.innerHTML = "";
+  }
+  const input = $("chatInput");
+  if (input) input.placeholder = replyingTo ? `Ответить ${replyingTo.name || "участнику"}…` : "Написать сообщение…";
+}
+
+function renderChatV6() {
+  const c = $("chatMessages");
+  if (!c) return;
+  c.innerHTML = "";
+  chatMessages.forEach(m => {
+    if (m.system) {
+      const d = document.createElement("div");
+      d.className = "system-message";
+      d.textContent = m.text;
+      c.appendChild(d);
+      return;
+    }
+
+    const d = document.createElement("div");
+    d.className = "message";
+    d.dataset.messageId = m.id || "";
+    const reply = m.reply_to ? `<div class="message-reply">↩ ${esc(m.reply_to.name || "")}: ${esc(m.reply_to.text || "").slice(0, 80)}</div>` : "";
+    const reactionEntries = Object.entries(m.reactions || {});
+    const reactions = reactionEntries.map(([emoji, count]) => {
+      const mine = m.my_reaction === emoji ? " mine" : "";
+      return `<button class="reaction-chip${mine}" type="button" data-message="${esc(m.id || "")}" data-reaction="${esc(emoji)}">${emoji} ${count}</button>`;
+    }).join("");
+
+    d.innerHTML = `${avatarMarkup(m,"message-avatar")}<div class="message-body"><div class="message-head"><b>${esc(m.name || "Гость")}</b><time>${new Date(m.time || Date.now()).toLocaleTimeString("ru-RU", {hour:"2-digit", minute:"2-digit"})}</time><button class="message-reply-btn" type="button" title="Ответить" aria-label="Ответить">↩</button><button class="message-react-btn" type="button" title="Добавить реакцию" aria-label="Добавить реакцию">☺</button></div>${reply}<p>${esc(m.text)}</p><div class="message-reactions">${reactions}</div></div>`;
+
+    d.querySelector(".message-reply-btn").onclick = () => setReplyV6(m);
+    d.querySelector(".message-react-btn").onclick = () => openReactionPickerV6(m.id, d.querySelector(".message-react-btn"));
+    d.querySelectorAll(".reaction-chip").forEach(button => {
+      button.onclick = () => send({ type: "chat_reaction", message_id: button.dataset.message, reaction: button.dataset.reaction });
+    });
+    c.appendChild(d);
+  });
+
+  $("chatCount").textContent = chatMessages.filter(x => !x.system).length;
+  $("chatPreview").innerHTML = chatMessages.slice(-4).map(m => m.system ? `<div class="chat-line">${esc(m.text)}</div>` : `<div class="chat-line"><b>${esc(m.name)}:</b> ${esc(m.text)}</div>`).join("");
+  c.scrollTop = c.scrollHeight;
+}
+renderChat = renderChatV6;
+
+const REACTION_CHOICES_V6 = ["❤️","🔥","😂","👍","👎","👏","🎵","🤣","😍","😢","😡","🤯","🎉","✨","💯"];
+function openReactionPickerV6(messageId, anchor) {
+  document.querySelector(".message-reaction-popover")?.remove();
+  const pop = document.createElement("div");
+  pop.className = "message-reaction-popover emoji-picker";
+  pop.innerHTML = REACTION_CHOICES_V6.map(e => `<button type="button" class="emoji-item" data-reaction="${e}">${e}</button>`).join("");
+  document.body.appendChild(pop);
+  const rect = anchor.getBoundingClientRect();
+  pop.style.position = "fixed";
+  pop.style.zIndex = "1000";
+  pop.style.left = `${Math.min(Math.max(8, rect.left - 150), window.innerWidth - 328)}px`;
+  pop.style.top = `${Math.min(window.innerHeight - 220, rect.bottom + 6)}px`;
+  pop.querySelectorAll("[data-reaction]").forEach(button => {
+    button.onclick = () => {
+      send({ type: "chat_reaction", message_id: messageId, reaction: button.dataset.reaction });
+      pop.remove();
+    };
+  });
+  setTimeout(() => document.addEventListener("click", function close(e) {
+    if (!pop.contains(e.target) && e.target !== anchor) {
+      pop.remove();
+      document.removeEventListener("click", close);
+    }
+  }), 0);
+}
+
+function sendChatV6(e) {
+  e.preventDefault();
+  const input = $("chatInput");
+  const text = input.value.trim();
+  if (!text) return;
+  if (!name()) {
+    openName();
+    return;
+  }
+  send({
+    type: "chat_message",
+    text,
+    reply_to: replyingTo ? { id: replyingTo.id, name: replyingTo.name, text: replyingTo.text } : null
+  });
+  input.value = "";
+  replyingTo = null;
+  renderReplyBar();
+  $("emojiPicker").hidden = true;
+}
+$("chatForm").onsubmit = sendChatV6;
+
+/* Bind fixes after the legacy bindings have run. */
+function applyV6Bindings() {
+  $("renameRoomBtn")?.addEventListener("click", renameRoomV6);
+  $("themeToggle")?.remove();
+  $("selectAllQueueBtn")?.remove();
+  $("queueMasterCheck")?.remove();
+  $("queueBulkDelete")?.remove();
+  $("queueBulkClearSelection")?.remove();
+
+  if ($("shuffleBtn")) $("shuffleBtn").onclick = toggleShuffleV6;
+  if ($("repeatBtn")) $("repeatBtn").onclick = repeatV6;
+  if ($("fullShuffle")) $("fullShuffle").onclick = toggleShuffleV6;
+  if ($("fullRepeat")) $("fullRepeat").onclick = repeatV6;
+
+  if ($("shuffleQueueBtn")) {
+    $("shuffleQueueBtn").onclick = () => toggleShuffleV6();
+    $("shuffleQueueBtn").textContent = shuffleMode ? "⤨ Перемешивание: вкл" : "⤨ Перемешивание";
+  }
+  renderModesV6();
+  renderQueueV6();
+  renderChatV6();
+  updateRoomNameUI($("roomNameTop")?.textContent || "Комната");
+}
+
+/* Run after init() so every legacy handler is replaced by the final one. */
+setTimeout(applyV6Bindings, 0);
