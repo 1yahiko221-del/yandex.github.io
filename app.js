@@ -330,9 +330,13 @@ function setDynamicColor(url)
 function formatTime(v)
 {
   v=Number(v);
-  if(!Number.isFinite(v)||v<0)return"0:00";
-  const m=Math.floor(v/60),s=Math.floor(v%60);
-  return`${m}:${String(s).padStart(2,"0")}`
+  if(!Number.isFinite(v)||v<0)return "0:00";
+  const total=Math.floor(v);
+  const hours=Math.floor(total/3600);
+  const minutes=Math.floor((total%3600)/60);
+  const seconds=total%60;
+  if(hours>0)return `${hours}:${String(minutes).padStart(2,"0")}:${String(seconds).padStart(2,"0")}`;
+  return `${minutes}:${String(seconds).padStart(2,"0")}`;
 }
 function duration()
 {
@@ -440,182 +444,298 @@ function setupSeek(el)
   }
   )
 }
+function isTrackInQueue(track)
+{
+  if(!track?.id)return false;
+  return localQueue.some(item=>String(item.id)===String(track.id));
+}
+
 function renderQueue()
 {
-  const c=$("queue"),preview=$("queuePreview");
+  const c=$("queue");
+  const preview=$("queuePreview");
+
   $("queueCount").textContent=localQueue.length;
+
   if(!localQueue.length)
   {
     c.innerHTML='<div class="empty"><strong>Очередь пока пуста</strong>Ищите музыку сверху и добавляйте её в комнату.</div>';
     preview.innerHTML='<div class="empty">Добавьте первый трек через поиск.</div>';
-    return
+    return;
   }
+
   c.innerHTML="";
   preview.innerHTML="";
-  localQueue.forEach((t,i)=>
+
+  localQueue.forEach((track,index)=>
   {
-    const row=trackElement(t,i,true,true);
-    c.appendChild(row);
-    if(i!==localCurrentIndex&&preview.children.length<4)preview.appendChild(trackElement(t,i,false,false))
-  }
-  )
+    // Полная строка очереди: лайк, плейлист, удаление и перетаскивание.
+    c.appendChild(trackElement(track,index,true,false));
+
+    // Компактная строка в блоке "Следующие треки".
+    if(index!==localCurrentIndex && preview.children.length<4)
+    {
+      preview.appendChild(trackElement(track,index,true,true));
+    }
+  });
 }
+
 function trackElement(t,i,full=true,compact=false)
 {
   const d=document.createElement("div");
-  d.className="track"+(i===localCurrentIndex?" current":"");
-  d.dataset.index=i;
-  const cover=t.cover?`<img class="track-cover" src="${esc(t.cover)}" alt="" loading="lazy">`:`<div class="track-cover"></div>`;
-  d.innerHTML=`${full?'<span class="drag-handle" aria-hidden="true">⋮⋮</span>':''}${cover}<div class="track-info"><div class="track-title">${i===localCurrentIndex?'♫ ':''}${esc(t.title)}</div><div class="track-artist">${esc(t.artist||"Unknown")}${t.added_by?` · $
+  const queueItem=full && i>=0 && i<localQueue.length && String(localQueue[i]?.id)===String(t?.id);
+
+  d.className="track"+(queueItem&&i===localCurrentIndex?" current":"");
+  d.dataset.index=queueItem?String(i):"";
+  d.dataset.trackId=String(t?.id??"");
+
+  if(queueItem)
   {
-    esc(t.added_by)
+    d.draggable=true;
+    d.classList.add("queue-track");
   }
-  `:""}</div></div><div class="track-meta">${formatTime(t.duration||0)}</div><div class="track-actions"></div>`;
+
+  const cover=t.cover
+    ? `<img class="track-cover" src="${esc(t.cover)}" alt="" loading="lazy">`
+    : '<div class="track-cover"></div>';
+
+  const addedBy=queueItem && t.added_by
+    ? `<div class="track-added-by">Добавил: ${esc(t.added_by)}</div>`
+    : "";
+
+  const durationText=formatTime(t.duration||0);
+
+  d.innerHTML=`
+    ${queueItem ? '<span class="drag-handle" title="Перетащить трек" aria-label="Перетащить трек">⋮⋮</span>' : ''}
+    ${cover}
+    <div class="track-info">
+      <div class="track-title">${queueItem&&i===localCurrentIndex?'♫ ':''}${esc(t.title)}</div>
+      <div class="track-artist">${esc(t.artist||"Unknown")}</div>
+      ${addedBy}
+    </div>
+    <div class="track-meta" title="Длительность">${durationText}</div>
+    <div class="track-actions"></div>
+  `;
+
   const actions=d.querySelector(".track-actions");
+  const alreadyInQueue=isTrackInQueue(t);
+
+  // Для любой обычной строки доступны лайк и добавление в плейлист.
+  // В самой очереди вместо "+" показываем только удаление.
   if(!compact)
   {
     const like=document.createElement("button");
-    like.textContent=getLibrary().some(x=>String(x.id)===String(t.id))?"♥":"♡";
-    like.className=getLibrary().some(x=>String(x.id)===String(t.id))?"liked":"";
-    like.title="В библиотеку";
+    const liked=getLibrary().some(x=>String(x.id)===String(t.id));
+    like.textContent=liked?"♥":"♡";
+    like.className=liked?"liked":"";
+    like.title=liked?"Убрать из библиотеки":"Добавить в библиотеку";
+    like.setAttribute("aria-label",like.title);
     like.onclick=e=>
     {
       e.stopPropagation();
-      toggleLibrary(t)
-    }
-    ;
+      toggleLibrary(t);
+    };
     actions.appendChild(like);
-    const pl=document.createElement("button");
-    pl.textContent="▣";
-    pl.title="Добавить в плейлист";
-    pl.onclick=e=>
+
+    const playlist=document.createElement("button");
+    playlist.textContent="▣";
+    playlist.title="Добавить в плейлист";
+    playlist.setAttribute("aria-label",playlist.title);
+    playlist.onclick=e=>
     {
       e.stopPropagation();
-      openPlaylistPicker(t)
-    }
-    ;
-    actions.appendChild(pl);
-    const add=document.createElement("button");
-    add.textContent="＋";
-    add.title="Добавить в очередь";
-    add.onclick=e=>
+      openPlaylistPicker(t);
+    };
+    actions.appendChild(playlist);
+
+    if(queueItem)
     {
-      e.stopPropagation();
-      addToQueue(t)
-    }
-    ;
-    actions.appendChild(add);
-    if(full)
-    {
-      const rm=document.createElement("button");
-      rm.textContent="×";
-      rm.title="Удалить";
-      rm.onclick=e=>
+      const remove=document.createElement("button");
+      remove.textContent="×";
+      remove.title="Удалить из очереди";
+      remove.setAttribute("aria-label",remove.title);
+      remove.className="remove-track";
+      remove.onclick=e=>
       {
         e.stopPropagation();
-        send(
-        {
-          type:"remove_from_queue",index:i
-        }
-        )
-      }
-      ;
-      actions.appendChild(rm)
+        removeQueueItem(i);
+      };
+      actions.appendChild(remove);
     }
-  }
-  else
-  {
-    const add=document.createElement("button");
-    add.textContent="＋";
-    add.onclick=e=>
+    else if(!alreadyInQueue)
     {
-      e.stopPropagation();
-      addToQueue(t)
+      const add=document.createElement("button");
+      add.textContent="＋";
+      add.title="Добавить в очередь";
+      add.setAttribute("aria-label",add.title);
+      add.onclick=e=>
+      {
+        e.stopPropagation();
+        addToQueue(t);
+      };
+      actions.appendChild(add);
     }
-    ;
-    actions.appendChild(add)
-  }
-  d.addEventListener("click",()=>
-  {
-    if(i===localCurrentIndex)return;
-    send(
+    else
     {
-      type:"play_track_manual",index:i
+      const queued=document.createElement("span");
+      queued.className="queue-status";
+      queued.textContent="В очереди";
+      queued.title="Этот трек уже находится в очереди";
+      actions.appendChild(queued);
     }
-    )
   }
-  );
-  if(full)enableSwipe(d,i);
-  return d
+
+  d.addEventListener("click",e=>
+  {
+    if(e.target.closest("button,.track-actions,.drag-handle"))return;
+
+    if(queueItem)
+    {
+      if(i===localCurrentIndex)return;
+      send({type:"play_track_manual",index:i});
+    }
+  });
+
+  if(queueItem)
+  {
+    enableQueueDrag(d,i);
+    enableSwipe(d,i);
+  }
+
+  return d;
 }
+
+function removeQueueItem(index)
+{
+  if(!Number.isInteger(index)||index<0||index>=localQueue.length)return;
+  send({type:"remove_from_queue",index});
+}
+
+let draggedQueueIndex=null;
+
+function enableQueueDrag(el,index)
+{
+  el.addEventListener("dragstart",event=>
+  {
+    draggedQueueIndex=index;
+    el.classList.add("dragging");
+    if(event.dataTransfer)
+    {
+      event.dataTransfer.effectAllowed="move";
+      event.dataTransfer.setData("text/plain",String(index));
+    }
+  });
+
+  el.addEventListener("dragover",event=>
+  {
+    event.preventDefault();
+    if(draggedQueueIndex===null || draggedQueueIndex===index)return;
+    if(event.dataTransfer)event.dataTransfer.dropEffect="move";
+    document.querySelectorAll(".queue-track.drag-over").forEach(row=>row.classList.remove("drag-over"));
+    el.classList.add("drag-over");
+  });
+
+  el.addEventListener("drop",event=>
+  {
+    event.preventDefault();
+    const from=draggedQueueIndex;
+    const to=index;
+    document.querySelectorAll(".queue-track.drag-over").forEach(row=>row.classList.remove("drag-over"));
+
+    if(Number.isInteger(from) && Number.isInteger(to) && from!==to)
+    {
+      send({type:"reorder_queue",from,to});
+    }
+  });
+
+  el.addEventListener("dragend",()=>
+  {
+    draggedQueueIndex=null;
+    el.classList.remove("dragging","drag-over");
+    document.querySelectorAll(".queue-track.drag-over").forEach(row=>row.classList.remove("drag-over"));
+  });
+}
+
 function enableSwipe(el,index)
 {
-  let sx=0,sy=0,moved=false;
-  el.addEventListener("touchstart",e=>
+  let sx=0;
+  let sy=0;
+  let moved=false;
+
+  el.addEventListener("touchstart",event=>
   {
-    if(e.touches.length!==1)return;
-    sx=e.touches[0].clientX;
-    sy=e.touches[0].clientY;
-    moved=false
-  }
-  ,
-  {
-    passive:true
-  }
-  );
-  el.addEventListener("touchmove",e=>
+    if(event.touches.length!==1)return;
+    sx=event.touches[0].clientX;
+    sy=event.touches[0].clientY;
+    moved=false;
+  },{passive:true});
+
+  el.addEventListener("touchmove",event=>
   {
     if(!sx)return;
-    const x=e.touches[0].clientX,y=e.touches[0].clientY;
-    if(Math.abs(y-sy)>Math.abs(x-sx))
+    const x=event.touches[0].clientX;
+    const y=event.touches[0].clientY;
+    const dx=x-sx;
+    const dy=y-sy;
+
+    if(Math.abs(dy)>Math.abs(dx))
     {
       sx=0;
-      return
+      return;
     }
-    if(Math.abs(x-sx)>8)moved=true
-  }
-  ,
+
+    if(Math.abs(dx)>8)moved=true;
+  },{passive:true});
+
+  el.addEventListener("touchend",event=>
   {
-    passive:true
-  }
-  );
-  el.addEventListener("touchend",e=>
-  {
-    if(!moved)return;
-    const dx=e.changedTouches[0].clientX-sx;
+    if(!moved || !sx)return;
+
+    const dx=event.changedTouches[0].clientX-sx;
     sx=0;
+
     if(Math.abs(dx)<55)return;
+
+    // Свайп вправо больше НЕ добавляет дубликат.
+    // Свайп влево удаляет трек из очереди.
     if(dx<0)
     {
-      if(confirm("Удалить этот трек из очереди?"))send(
-      {
-        type:"remove_from_queue",index
-      }
-      )
+      if(confirm("Удалить этот трек из очереди?"))removeQueueItem(index);
     }
-    else addToQueue(localQueue[index])
-  }
-  ,
-  {
-    passive:true
-  }
-  )
+  },{passive:true});
 }
+
 function addToQueue(t)
 {
+  if(!t?.id)return;
+
+  if(isTrackInQueue(t))
+  {
+    toast("Этот трек уже в очереди");
+    return;
+  }
+
   if(!name())
   {
     openName();
     toast("Сначала укажи имя");
-    return
+    return;
   }
-  send(
-  {
-    type:"add_to_queue",track_id:String(t.id),title:t.title,artist:t.artist,album:t.album||"",cover:t.cover||"",added_by:name()
-  }
-  );
-  toast(`＋ ${t.title}`)
+
+  send({
+    type:"add_to_queue",
+    track_id:String(t.id),
+    title:t.title,
+    artist:t.artist,
+    album:t.album||"",
+    cover:t.cover||"",
+    duration:Number(t.duration)||0,
+    added_by:name()
+  });
+
+  toast(`＋ ${t.title}`);
 }
+
 function searchRender(tracks)
 {
   const c=$("searchResults");
@@ -776,21 +896,7 @@ function renderLibrary()
   lib.forEach(t=>
   {
     const d=trackElement(t,0,false,false);
-    d.onclick=()=>
-    {
-      if(!name())
-      {
-        openName();
-        return
-      }
-      send(
-      {
-        type:"add_to_queue",track_id:String(t.id),title:t.title,artist:t.artist,album:t.album||"",cover:t.cover||"",added_by:name()
-      }
-      );
-      toast(`＋ ${t.title}`)
-    }
-    ;
+    d.onclick=()=>addToQueue(t);
     c.appendChild(d)
   }
   )
@@ -821,13 +927,15 @@ function renderHistory()
     );
     d.onclick=()=>
     {
-      addToQueue(t);
-      send(
+      if(isTrackInQueue(t))
       {
-        type:"play_track_manual_by_id",track_id:String(t.id)
+        send({type:"play_track_manual_by_id",track_id:String(t.id)});
+        return;
       }
-      )
-    }
+
+      addToQueue(t);
+      setTimeout(()=>send({type:"play_track_manual_by_id",track_id:String(t.id)}),250);
+    };
     ;
     c.appendChild(d)
   }
