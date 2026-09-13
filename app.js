@@ -17,7 +17,7 @@ const esc=s=>String(s??"").replace(/[&<>"]/g,m=>(
 }
 [m]));
 let ws=null,reconnectAttempts=0,reconnectTimer=null,isSyncing=false,isSeeking=false,seekPointerId=null,lastServerTime=0,lastServerAt=0;
-let localQueue=[],localCurrentIndex=-1,currentTrack=null,repeatMode="off",shuffleMode=false,djMode=false,isOwner=false,participants=[],chatMessages=[];
+let localQueue=[],localCurrentIndex=-1,currentTrack=null,repeatMode="off",shuffleMode=false,djMode=false,isOwner=false,participants=[],chatMessages=[],sharedPlaylists=[],selfParticipantId="",intentionalLeave=false;
 const CLIENT_KEY="syncMusicClientToken",NAME_KEY="syncMusicUserName",HISTORY_KEY="syncMusicHistory",PLAYLIST_KEY="syncMusicPlaylists",VOLUME_KEY="syncMusicVolume",MUTED_KEY="syncMusicMuted";
 const clientToken=localStorage.getItem(CLIENT_KEY)||crypto.randomUUID();
 localStorage.setItem(CLIENT_KEY,clientToken);
@@ -73,6 +73,11 @@ function connect()
   ;
   ws.onclose=()=>
   {
+    if(intentionalLeave)
+    {
+      status("disconnected","Вы вышли");
+      return;
+    }
     status("reconnecting","Переподключение");
     if(!reconnectTimer)
     {
@@ -110,6 +115,9 @@ function handleMessage(m)
     djMode=!!m.dj_mode;
     isOwner=!!m.is_owner;
     participants=m.participants||[];
+    selfParticipantId=m.self_id||selfParticipantId;
+    sharedPlaylists=m.shared_playlists||[];
+    intentionalLeave=false;
     lastServerTime=Number(m.current_time)||0;
     lastServerAt=performance.now();
     renderAll();
@@ -138,7 +146,34 @@ function handleMessage(m)
   {
     participants=m.participants||[];
     renderParticipants();
+    renderSharedMemberModal();
     return
+  }
+  if(m.type==="shared_playlists")
+  {
+    sharedPlaylists=m.playlists||[];
+    renderPlaylists();
+    renderSharedMemberModal();
+    if(editingSharedPlaylistId && $("sharedMembersModal").hidden && sharedPlaylists.some(p=>String(p.id)===String(editingSharedPlaylistId)))
+    {
+      openSharedMembers(editingSharedPlaylistId);
+    }
+    return
+  }
+  if(m.type==="left_room")
+  {
+    intentionalLeave=true;
+    status("disconnected","Вы вышли");
+    toast("Ты вышел из комнаты");
+    return;
+  }
+  if(m.type==="kicked")
+  {
+    intentionalLeave=true;
+    status("disconnected","Удалён из комнаты");
+    toast(m.text||"Ты удалён из комнаты");
+    try { ws?.close(); } catch {}
+    return;
   }
   if(m.type==="play_track")
   {
@@ -658,50 +693,56 @@ function enableQueueDrag(el,index)
 
 function enableSwipe(el,index)
 {
-  let sx=0;
-  let sy=0;
-  let moved=false;
-
-  el.addEventListener("touchstart",event=>
-  {
+  let startX=0,startY=0,lastY=0,mode="",targetIndex=index,moved=false;
+  const reset=()=>{startX=0;startY=0;lastY=0;mode="";targetIndex=index;moved=false;el.classList.remove("touch-dragging");document.querySelectorAll(".queue-track.touch-over").forEach(x=>x.classList.remove("touch-over"));};
+  el.addEventListener("touchstart",event=>{
     if(event.touches.length!==1)return;
-    sx=event.touches[0].clientX;
-    sy=event.touches[0].clientY;
+    if(event.target.closest("button"))return;
+    startX=event.touches[0].clientX;
+    startY=event.touches[0].clientY;
+    lastY=startY;
+    mode=event.target.closest(".drag-handle")?"drag":"swipe";
     moved=false;
+    if(mode==="drag")el.classList.add("touch-dragging");
   },{passive:true});
-
-  el.addEventListener("touchmove",event=>
-  {
-    if(!sx)return;
-    const x=event.touches[0].clientX;
-    const y=event.touches[0].clientY;
-    const dx=x-sx;
-    const dy=y-sy;
-
-    if(Math.abs(dy)>Math.abs(dx))
+  el.addEventListener("touchmove",event=>{
+    if(!startX||event.touches.length!==1)return;
+    const x=event.touches[0].clientX,y=event.touches[0].clientY;
+    const dx=x-startX,dy=y-startY;
+    if(mode==="swipe")
     {
-      sx=0;
+      if(Math.abs(dy)>Math.abs(dx)+8){reset();return;}
+      if(Math.abs(dx)>8)moved=true;
       return;
     }
-
-    if(Math.abs(dx)>8)moved=true;
-  },{passive:true});
-
-  el.addEventListener("touchend",event=>
-  {
-    if(!moved || !sx)return;
-
-    const dx=event.changedTouches[0].clientX-sx;
-    sx=0;
-
-    if(Math.abs(dx)<55)return;
-
-    // Свайп вправо больше НЕ добавляет дубликат.
-    // Свайп влево удаляет трек из очереди.
-    if(dx<0)
-    {
-      if(confirm("Удалить этот трек из очереди?"))removeQueueItem(index);
+    if(mode!=="drag")return;
+    if(Math.abs(dy)>8)moved=true;
+    lastY=y;
+    const row=document.elementFromPoint(x,y)?.closest(".queue-track");
+    if(row){
+      const n=Number(row.dataset.index);
+      if(Number.isInteger(n)){
+        targetIndex=n;
+        document.querySelectorAll(".queue-track.touch-over").forEach(q=>q.classList.remove("touch-over"));
+        if(n!==index)row.classList.add("touch-over");
+      }
     }
+  },{passive:true});
+  el.addEventListener("touchend",event=>{
+    if(!startX)return;
+    const dx=event.changedTouches[0].clientX-startX;
+    const dy=event.changedTouches[0].clientY-startY;
+    if(mode==="drag" && moved && Number.isInteger(targetIndex) && targetIndex!==index)
+    {
+      send({type:"reorder_queue",from:index,to:targetIndex});
+      reset();
+      return;
+    }
+    if(mode==="swipe" && moved && Math.abs(dx)>=55 && Math.abs(dx)>Math.abs(dy))
+    {
+      if(dx<0 && confirm("Удалить этот трек из очереди?"))removeQueueItem(index);
+    }
+    reset();
   },{passive:true});
 }
 
@@ -823,6 +864,11 @@ document.addEventListener("click",e=>
   if(!$("searchWrap").contains(e.target))$("searchResults").hidden=true
 }
 );
+document.addEventListener("click",e=>{
+  const picker=$("emojiPicker");
+  if(picker && !picker.hidden && !picker.contains(e.target) && e.target!==$("emojiBtn"))picker.hidden=true;
+});
+
 function getLibrary()
 {
   try
@@ -958,40 +1004,41 @@ function savePlaylists(v)
 }
 let editingPlaylistId=null;
 let pendingPlaylistTrack=null;
+let editingSharedPlaylistId=null;
+let creatingSharedPlaylist=false;
 function playlistArt(p)
 {
   return p.tracks?.slice(0,4).map(t=>t.cover).filter(Boolean)||[]
 }
 function renderPlaylists()
 {
-  const c=$("playlistGrid"),ps=getPlaylists();
-  if(!ps.length)
+  const c=$("playlistGrid");
+  const local=getPlaylists();
+  const all=[...sharedPlaylists.map(p=>({...p,is_shared:true})), ...local.map(p=>({...p,is_shared:false}))];
+  if(!all.length)
   {
-    c.innerHTML='<div class="empty"><strong>Плейлистов ещё нет</strong>Создайте личную коллекцию для любимых сетов.</div>';
-    return
+    c.innerHTML='<div class="empty"><strong>Плейлистов ещё нет</strong>Создайте личный или совместный плейлист.</div>';
+    return;
   }
   c.innerHTML="";
-  ps.forEach(p=>
-  {
+  all.forEach(p=>{
     const d=document.createElement("article");
-    d.className="playlist-card";
+    d.className=`playlist-card${p.is_shared?" shared":""}`;
     const arts=playlistArt(p);
-    d.innerHTML=`<div class="playlist-art">${arts.length?arts.slice(0,4).map(u=>`<img src="${esc(u)}" alt="" loading="lazy">`).join(""):"<span></span>"}</div><h3>${esc(p.name)}</h3><p>${p.tracks.length} треков${p.description?` · $
-    {
-      esc(p.description)
-    }
-    `:""}</p><div class="playlist-buttons"><button class="btn btn-primary open-pl">Открыть</button><button class="btn edit-pl">⋯</button></div>`;
-    d.querySelector(".open-pl").onclick=()=>openPlaylist(p.id);
-    d.querySelector(".edit-pl").onclick=()=>openPlaylistModal(p.id);
-    c.appendChild(d)
-  }
-  )
+    const memberCount=p.is_shared?(p.member_ids||[]).length:0;
+    d.innerHTML=`<div class="playlist-art">${arts.length?arts.slice(0,4).map(u=>`<img src="${esc(u)}" alt="" loading="lazy">`).join(""):"<span></span>"}</div><h3>${esc(p.name)}</h3><p>${p.tracks.length} треков${p.description?` · ${esc(p.description)}`:""}${p.is_shared?` <span class="shared-badge">● Совместный · ${memberCount}</span>`:""}</p><div class="playlist-buttons"><button class="btn btn-primary open-pl">Открыть</button>${p.is_shared?`<button class="btn edit-pl playlist-members-btn">Участники</button>`:`<button class="btn edit-pl">⋯</button>`}</div>`;
+    d.querySelector(".open-pl").onclick=()=>p.is_shared?openSharedPlaylist(p.id):openPlaylist(p.id);
+    d.querySelector(".edit-pl").onclick=()=>p.is_shared?openSharedMembers(p.id):openPlaylistModal(p.id);
+    c.appendChild(d);
+  });
 }
-function openPlaylistModal(id=null)
+
+function openPlaylistModal(id=null, shared=false)
 {
   editingPlaylistId=id;
+  creatingSharedPlaylist=shared && !id;
   const p=id?getPlaylists().find(x=>x.id===id):null;
-  $("playlistModalTitle").textContent=p?"Изменить плейлист":"Новый плейлист";
+  $("playlistModalTitle").textContent=p?"Изменить плейлист":(creatingSharedPlaylist?"Новый совместный плейлист":"Новый плейлист");
   $("playlistNameInput").value=p?.name||"";
   $("playlistDescInput").value=p?.description||"";
   $("playlistModal").hidden=false;
@@ -1001,6 +1048,18 @@ $("savePlaylistBtn").onclick=()=>
 {
   const n=$("playlistNameInput").value.trim();
   if(!n)return toast("Введите название");
+  const desc=$("playlistDescInput").value.trim();
+  if(creatingSharedPlaylist)
+  {
+    const id=crypto.randomUUID();
+    send({type:"shared_playlist_create",id,name:n,description:desc,member_ids:[selfParticipantId]});
+    $("playlistModal").hidden=true;
+    editingSharedPlaylistId=id;
+    toast("Совместный плейлист создаётся…");
+    setTimeout(()=>{ if(sharedPlaylists.some(p=>String(p.id)===String(id))) { openSharedMembers(id); } },500);
+    creatingSharedPlaylist=false;
+    return;
+  }
   let ps=getPlaylists();
   if(editingPlaylistId)
   {
@@ -1008,70 +1067,99 @@ $("savePlaylistBtn").onclick=()=>
     if(p)
     {
       p.name=n;
-      p.description=$("playlistDescInput").value.trim();
+      p.description=desc;
     }
   }
   else
   {
-    const playlist=
-    {
-      id:crypto.randomUUID(),
-      name:n,
-      description:$("playlistDescInput").value.trim(),
-      created_at:new Date().toISOString(),
-      tracks:[]
-    };
-
+    const playlist={id:crypto.randomUUID(),name:n,description:desc,created_at:new Date().toISOString(),tracks:[]};
     if(pendingPlaylistTrack)
     {
       playlist.tracks.push({...pendingPlaylistTrack});
       pendingPlaylistTrack=null;
     }
-
     ps.unshift(playlist);
   }
   savePlaylists(ps);
   $("playlistModal").hidden=true;
   renderPlaylists();
-  toast("Плейлист сохранён")
-}
-;
+  toast("Плейлист сохранён");
+};
+
 function openPlaylistPicker(track)
 {
   pendingPlaylistTrack=track?{...track}:null;
-  const ps=getPlaylists();
-  if(!ps.length)
+  const local=getPlaylists();
+  const shared=sharedPlaylists.filter(currentUserCanEditShared);
+  if(!local.length && !shared.length)
   {
     openPlaylistModal();
     toast("Создай плейлист — трек добавится автоматически");
-    return
+    return;
   }
   const c=$("playlistPickerList");
   c.innerHTML="";
-  ps.forEach(p=>
-  {
+  local.forEach(p=>{
     const b=document.createElement("button");
     b.className="picker-item";
-    b.innerHTML=`<span class="picker-art"></span><span><b>${esc(p.name)}</b><small>${p.tracks.length} треков</small></span>`;
-    b.onclick=()=>
-    {
-      if(!p.tracks.some(x=>String(x.id)===String(track.id)))p.tracks.push(
-      {
-        ...track
-      }
-      );
-      savePlaylists(ps);
+    b.innerHTML=`<span class="picker-art"></span><span><b>${esc(p.name)}</b><small>${p.tracks.length} треков · личный</small></span>`;
+    b.onclick=()=>{
+      if(!p.tracks.some(x=>String(x.id)===String(track.id)))p.tracks.push({...track});
+      savePlaylists(local);
       pendingPlaylistTrack=null;
       $("playlistPicker").hidden=true;
       renderPlaylists();
-      toast(`Добавлено в «${p.name}»`)
-    }
-    ;
-    c.appendChild(b)
-  }
-  );
-  $("playlistPicker").hidden=false
+      toast(`Добавлено в «${p.name}»`);
+    };
+    c.appendChild(b);
+  });
+  shared.forEach(p=>{
+    const b=document.createElement("button");
+    b.className="picker-item";
+    const already=p.tracks.some(x=>String(x.id)===String(track.id));
+    b.innerHTML=`<span class="picker-art"></span><span><b>${esc(p.name)} <span class="shared-badge">Совместный</span></b><small>${p.tracks.length} треков${already?" · уже добавлен":""}</small></span>`;
+    b.disabled=already;
+    b.onclick=()=>{
+      if(already)return;
+      send({type:"shared_playlist_add_track",playlist_id:p.id,track:{...track}});
+      pendingPlaylistTrack=null;
+      $("playlistPicker").hidden=true;
+      toast(`Добавление в «${p.name}» отправлено`);
+    };
+    c.appendChild(b);
+  });
+  $("playlistPicker").hidden=false;
 }
+
+function openSharedPlaylist(id)
+{
+  const p=sharedPlaylists.find(x=>String(x.id)===String(id));
+  if(!p)return;
+  const d=$("playlistDetail");
+  d.hidden=false;
+  const arts=playlistArt(p);
+  const canEdit=currentUserCanEditShared(p);
+  d.innerHTML=`<div class="playlist-detail-head"><div class="playlist-art playlist-detail-art">${arts.length?arts.slice(0,4).map(u=>`<img src="${esc(u)}" alt="">`).join(""):""}</div><div><span class="eyebrow">SHARED PLAYLIST</span><h2>${esc(p.name)}</h2><p>${esc(p.description||"")} · ${p.tracks.length} треков · ${p.member_ids?.length||0} участников</p><div class="modal-actions"><button class="btn btn-primary" id="plPlay">▶ Play</button><button class="btn btn-secondary" id="plShuffle">⤨ Shuffle</button><button class="btn btn-secondary" id="plQueue">＋ В очередь</button>${canEdit?`<button class="btn btn-secondary" id="plMembers">Участники</button>`:""}${String(p.owner_id)===String(selfParticipantId)||isOwner?`<button class="btn btn-secondary" id="plDelete">Удалить</button>`:""}</div></div></div><div id="plTracks" class="track-list" style="margin-top:18px"></div>`;
+  const tc=$("plTracks");
+  p.tracks.forEach(t=>{
+    const r=trackElement(t,0,false,false);
+    if(canEdit)
+    {
+      const remove=document.createElement("button");
+      remove.textContent="×";
+      remove.title="Удалить";
+      remove.onclick=()=>send({type:"shared_playlist_remove_track",playlist_id:p.id,track_id:String(t.id)});
+      r.querySelector(".track-actions").appendChild(remove);
+    }
+    tc.appendChild(r);
+  });
+  $("plPlay").onclick=()=>playPlaylist(p,false);
+  $("plShuffle").onclick=()=>playPlaylist(p,true);
+  $("plQueue").onclick=()=>queuePlaylist(p);
+  $("plMembers")?.addEventListener("click",()=>openSharedMembers(p.id));
+  $("plDelete")?.addEventListener("click",()=>{ if(confirm("Удалить совместный плейлист?"))send({type:"shared_playlist_delete",playlist_id:p.id}); });
+}
+
 function openPlaylist(id)
 {
   const p=getPlaylists().find(x=>x.id===id);
@@ -1127,6 +1215,29 @@ function queuePlaylist(p)
   p.tracks.forEach(addToQueue);
   toast(`Добавлено: ${p.tracks.length}`)
 }
+const CHAT_EMOJIS=["😀","😃","😄","😁","😆","😅","😂","🤣","😊","🙂","🙃","😉","😍","🥰","😘","😎","🤩","🥳","😏","🤔","😴","😭","😡","🤯","👍","👎","👏","🙌","🔥","❤️","💜","💚","🎵","🎶","🎧","✨","💯","🚀","🤝"];
+function initEmojiPicker()
+{
+  const picker=$("emojiPicker");
+  if(!picker)return;
+  picker.innerHTML=CHAT_EMOJIS.map(e=>`<button class="emoji-item" type="button" data-emoji="${e}">${e}</button>`).join("");
+  picker.querySelectorAll(".emoji-item").forEach(btn=>btn.onclick=()=>{
+    const input=$("chatInput");
+    const emoji=btn.dataset.emoji||"";
+    const start=input.selectionStart??input.value.length;
+    const end=input.selectionEnd??input.value.length;
+    input.value=input.value.slice(0,start)+emoji+input.value.slice(end);
+    input.focus();
+    input.selectionStart=input.selectionEnd=start+emoji.length;
+  });
+}
+function toggleEmojiPicker()
+{
+  const picker=$("emojiPicker");
+  if(!picker)return;
+  picker.hidden=!picker.hidden;
+}
+
 function renderChat()
 {
   const c=$("chatMessages");
@@ -1173,13 +1284,62 @@ $("chatForm").onsubmit=e=>
 function renderParticipants()
 {
   const c=$("participants");
-  c.innerHTML=participants.map(p=>`<div class="participant"><span class="p-avatar" style="background:${esc(p.color||"#555")}">${esc(initials(p.name))}</span><span class="p-name">${esc(p.name||"Гость")}${p.is_owner?" · owner":""}</span><small>${p.is_playing?"♫ слушает":"online"}</small></div>`).join("")||'<div class="empty">Участников пока нет.</div>';
+  c.innerHTML=participants.map(p=>{
+    const canKick=isOwner && p.id && p.id!==selfParticipantId;
+    return `<div class="participant" data-participant-id="${esc(p.id||"")}"><span class="p-avatar" style="background:${esc(p.color||"#555")}">${esc(initials(p.name))}</span><span class="p-name">${esc(p.name||"Гость")}${p.is_owner?" · владелец":""}</span><small>${p.is_playing?"♫ слушает":"online"}</small>${canKick?`<span class="participant-actions"><button class="participant-kick" type="button" title="Удалить из комнаты" aria-label="Удалить ${esc(p.name)} из комнаты">×</button></span>`:""}</div>`;
+  }).join("")||'<div class="empty">Участников пока нет.</div>';
+
+  c.querySelectorAll(".participant-kick").forEach(button=>{
+    button.addEventListener("click",()=>{
+      const row=button.closest(".participant");
+      const id=row?.dataset.participantId;
+      const person=participants.find(p=>p.id===id);
+      if(!id||!person)return;
+      if(confirm(`Удалить ${person.name||"участника"} из комнаты?`))send({type:"kick_participant",participant_id:id});
+    });
+  });
+
   $("participantCount").textContent=participants.length;
   $("participantCountSide").textContent=participants.length;
   const owner=participants.find(p=>p.is_owner);
   $("ownerLabel").textContent=`DJ: ${owner?.name||"—"}`;
-  $("roomNameTop").textContent="Комната"
+  $("roomNameTop").textContent="Комната";
 }
+
+function renderSharedMemberModal()
+{
+  const c=$("sharedMembersList");
+  if(!c)return;
+  const id=editingSharedPlaylistId;
+  const playlist=sharedPlaylists.find(p=>String(p.id)===String(id));
+  if(!playlist)
+  {
+    c.innerHTML='<div class="empty">Выберите совместный плейлист.</div>';
+    return;
+  }
+  const selected=new Set((playlist.member_ids||[]).map(String));
+  c.innerHTML=participants.map(p=>`<label class="participant"><span class="p-avatar" style="background:${esc(p.color||"#555")}">${esc(initials(p.name))}</span><span class="p-name">${esc(p.name||"Гость")}${p.is_owner?" · владелец":""}</span><input class="participant-check" type="checkbox" value="${esc(p.id)}" ${selected.has(String(p.id))?"checked":""} ${String(p.id)===String(playlist.owner_id)?"disabled":""}></label>`).join("")||'<div class="empty">В комнате никого нет.</div>';
+}
+
+function openSharedMembers(id)
+{
+  const p=sharedPlaylists.find(x=>String(x.id)===String(id));
+  if(!p)return;
+  if(String(p.owner_id)!==String(selfParticipantId) && !isOwner)
+  {
+    toast("Изменять участников может создатель плейлиста");
+    return;
+  }
+  editingSharedPlaylistId=id;
+  renderSharedMemberModal();
+  $("sharedMembersModal").hidden=false;
+}
+
+function currentUserCanEditShared(p)
+{
+  return !!p && (isOwner || (p.member_ids||[]).map(String).includes(String(selfParticipantId)));
+}
+
 function renderProposals()
 {
   /* reserved for server-side DJ voting UI */
@@ -1403,6 +1563,29 @@ function showRoom()
   renderParticipants();
   p.hidden=false
 }
+function leaveRoom()
+{
+  if(intentionalLeave)return;
+  if(!confirm("Выйти из этой комнаты?"))return;
+  intentionalLeave=true;
+  send({type:"leave_room"});
+  setTimeout(()=>{
+    try{ws?.close();}catch{}
+    status("disconnected","Вы вышли");
+    $("roomModal").hidden=true;
+  },120);
+}
+
+function saveSharedMembers()
+{
+  const p=sharedPlaylists.find(x=>String(x.id)===String(editingSharedPlaylistId));
+  if(!p)return;
+  const ids=[...$("sharedMembersList").querySelectorAll("input.participant-check:checked")].map(x=>x.value);
+  if(!ids.includes(String(p.owner_id)))ids.push(String(p.owner_id));
+  send({type:"shared_playlist_update_members",playlist_id:p.id,member_ids:ids});
+  $("sharedMembersModal").hidden=true;
+}
+
 function switchView(v)
 {
   document.querySelectorAll(".view").forEach(x=>x.classList.toggle("active",x.id===v+"View"));
@@ -1422,6 +1605,12 @@ function bind()
   document.querySelectorAll(".nav-item").forEach(b=>b.onclick=()=>switchView(b.dataset.view));
   document.querySelectorAll("[data-view-link]").forEach(b=>b.onclick=()=>switchView(b.dataset.viewLink));
   $("roomButton").onclick=showRoom;
+  $("leaveRoomBtn").onclick=leaveRoom;
+  $("modalLeaveRoomBtn").onclick=leaveRoom;
+  $("newSharedPlaylistBtn").onclick=()=>openPlaylistModal(null,true);
+  $("saveSharedMembersBtn").onclick=saveSharedMembers;
+  $("emojiBtn").onclick=toggleEmojiPicker;
+  initEmojiPicker();
   $("roomInfoBtn").onclick=showRoom;
   $("copyRoomBtn").onclick=copyRoom;
   $("copyInviteBtn").onclick=copyRoom;
@@ -1573,6 +1762,38 @@ function bind()
   }
   )
 }
+function setupMobileNavigation()
+{
+  const content=$(".content");
+  if(!content)return;
+  let sx=0,sy=0,tracking=false;
+  const views=[...document.querySelectorAll(".nav-item")].map(x=>x.dataset.view);
+  content.addEventListener("touchstart",e=>{
+    if(window.innerWidth>780||e.touches.length!==1)return;
+    if(e.target.closest("input,textarea,button,.track-actions,.progress-container,.side-nav"))return;
+    sx=e.touches[0].clientX;
+    sy=e.touches[0].clientY;
+    tracking=true;
+  },{passive:true});
+  content.addEventListener("touchend",e=>{
+    if(!tracking)return;
+    tracking=false;
+    const dx=e.changedTouches[0].clientX-sx;
+    const dy=e.changedTouches[0].clientY-sy;
+    if(Math.abs(dx)<65||Math.abs(dx)<=Math.abs(dy)*1.2)return;
+    const active=document.querySelector(".nav-item.active")?.dataset.view;
+    const current=views.indexOf(active);
+    if(current<0)return;
+    const nextIndex=dx<0?Math.min(views.length-1,current+1):Math.max(0,current-1);
+    if(nextIndex!==current)switchView(views[nextIndex]);
+  },{passive:true});
+
+  const nav=$(".side-nav");
+  nav?.addEventListener("wheel",e=>{
+    if(window.innerWidth<=780 && Math.abs(e.deltaY)>Math.abs(e.deltaX))nav.scrollLeft+=e.deltaY;
+  },{passive:true});
+}
+
 function init()
 {
   ["roomIdDisplay","roomIdSide"].forEach(id=>$(id).textContent=roomId);
@@ -1587,6 +1808,7 @@ function init()
   syncVolumeUI();
   renderAll();
   setupMiniObserver();
+  setupMobileNavigation();
   connect();
   if(!n)setTimeout(openName,700)
 }
