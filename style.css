@@ -1659,7 +1659,7 @@ button
 {
   body
   {
-    padding:10px 10px 120px
+    padding:10px 10px 94px
   }
   .topbar
   {
@@ -1711,15 +1711,44 @@ button
   }
   .side-nav
   {
+    position:fixed;
+    left:8px;
+    right:8px;
+    bottom:calc(8px + env(safe-area-inset-bottom));
+    z-index:4500;
     display:flex;
-    overflow:auto;
-    margin:10px -5px -3px;
-    padding:0 5px
+    overflow-x:auto;
+    overflow-y:hidden;
+    margin:0;
+    padding:7px;
+    gap:4px;
+    border:1px solid rgba(255,255,255,.10);
+    border-radius:18px;
+    background:rgba(12,14,20,.94);
+    box-shadow:0 18px 50px rgba(0,0,0,.45);
+    backdrop-filter:blur(20px);
+    -webkit-backdrop-filter:blur(20px);
+    scrollbar-width:none;
+    touch-action:pan-x;
+    overscroll-behavior-x:contain
+  }
+  .side-nav::-webkit-scrollbar
+  {
+    display:none
   }
   .nav-item
   {
+    min-width:max-content;
     white-space:nowrap;
-    flex:0 0 auto
+    flex:1 0 auto;
+    justify-content:center;
+    padding:0 11px;
+    min-height:40px;
+    touch-action:manipulation
+  }
+  .nav-item em
+  {
+    margin-left:2px
   }
   .section-heading
   {
@@ -1871,5 +1900,176 @@ button
   {
     flex-wrap:wrap;
     justify-content:center
+  }
+}
+
+/* Mobile navigation and collaboration/chat additions */
+.side-nav {
+  scrollbar-width: none;
+  -webkit-overflow-scrolling: touch;
+  touch-action: pan-x;
+}
+.side-nav::-webkit-scrollbar {
+  display: none;
+}
+.nav-item {
+  user-select: none;
+  -webkit-user-select: none;
+  touch-action: pan-x;
+}
+.participant-actions {
+  margin-left: auto;
+  display: flex;
+  align-items: center;
+  gap: 6px;
+}
+.participant-kick {
+  width: 30px;
+  height: 30px;
+  border-radius: 9px;
+  background: rgba(255, 90, 100, .10);
+  color: #ff8990;
+  font-size: 16px;
+}
+.participant-kick:hover {
+  background: rgba(255, 90, 100, .18);
+}
+.participant-check {
+  width: 18px;
+  height: 18px;
+  accent-color: var(--accent, #1db954);
+}
+.shared-badge {
+  display: inline-flex;
+  align-items: center;
+  gap: 5px;
+  margin-left: 6px;
+  padding: 3px 7px;
+  border-radius: 999px;
+  font-size: 9px;
+  color: #b8f7ce;
+  background: rgba(29,185,84,.10);
+  border: 1px solid rgba(29,185,84,.16);
+}
+.playlist-card.shared {
+  border-color: rgba(29,185,84,.20);
+}
+.playlist-members-btn {
+  width: 100%;
+}
+.chat-input-wrap {
+  flex: 1;
+  min-width: 0;
+  position: relative;
+  display: flex;
+  align-items: center;
+}
+.chat-input-wrap input {
+  width: 100%;
+  padding-left: 43px;
+}
+.emoji-btn {
+  position: absolute;
+  left: 4px;
+  z-index: 2;
+  width: 34px;
+  height: 34px;
+  font-size: 19px;
+  background: transparent;
+}
+.emoji-picker {
+  position: absolute;
+  z-index: 20;
+  left: 0;
+  bottom: calc(100% + 8px);
+  width: min(300px, 90vw);
+  padding: 10px;
+  display: grid;
+  grid-template-columns: repeat(8, 1fr);
+  gap: 4px;
+  border-radius: 16px;
+  background: rgba(20,22,29,.97);
+  border: 1px solid rgba(255,255,255,.10);
+  box-shadow: 0 20px 60px rgba(0,0,0,.45);
+}
+.emoji-picker[hidden] {
+  display: none;
+}
+.emoji-item {
+  min-width: 30px;
+  min-height: 30px;
+  border-radius: 8px;
+  background: transparent;
+  font-size: 20px;
+}
+.emoji-item:hover {
+  background: rgba(255,255,255,.08);
+}
+
+@media (max-width: 780px) {
+  .sidebar {
+    padding: 10px;
+  }
+  .sidebar-head {
+    margin-bottom: 4px;
+  }
+  .side-nav {
+    width: 100%;
+    overflow-x: auto;
+    overflow-y: hidden;
+    overscroll-behavior-x: contain;
+    scroll-behavior: auto;
+    padding-bottom: 4px;
+  }
+  .nav-item {
+    min-height: 42px;
+    padding: 0 13px;
+  }
+  .room-actions {
+    flex-wrap: wrap;
+  }
+  .chat-form {
+    align-items: stretch;
+  }
+  .chat-form > .btn {
+    flex: 0 0 auto;
+  }
+}
+
+.queue-track.touch-dragging
+{
+  opacity:.72;
+  transform:scale(.985);
+  box-shadow:0 18px 40px rgba(0,0,0,.35);
+}
+.queue-track.touch-over
+{
+  border-color:color-mix(in srgb,var(--accent,#1db954) 70%,white);
+  box-shadow:inset 0 0 0 1px color-mix(in srgb,var(--accent,#1db954) 35%,transparent);
+}
+@media (max-width:780px)
+{
+  .drag-handle
+  {
+    padding:12px 7px;
+    font-size:18px;
+    touch-action:none;
+  }
+  .content
+  {
+    min-width:0;
+  }
+  .playlist-buttons
+  {
+    flex-wrap:wrap;
+  }
+}
+
+@media (max-width:780px)
+{
+  .side-nav .nav-item
+  {
+    touch-action:manipulation;
+    -webkit-tap-highlight-color:transparent;
   }
 }
