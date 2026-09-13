@@ -12,11 +12,15 @@ const WS_URL = API_BASE.replace("https://", "wss://").replace("http://", "ws://"
 
 let ws = null;
 let isSyncing = false;
-let reconnectTimer = null;
 let localQueue = [];
 let localCurrentIndex = -1;
 let lastVolume = 1;
 let currentTrack = null;
+let repeatMode = 'off'; // off | all | one
+let shuffleMode = false;
+let reconnectAttempts = 0;
+let reconnectTimer = null;
+const QUEUE_CACHE_KEY = 'syncMusicQueueCache';
 
 const clientId = Math.random().toString(36).substring(2, 10);
 
@@ -142,19 +146,43 @@ function likeCurrentTrack() {
     toggleLike(currentTrack);
 }
 
+// --- Локальный кэш очереди (быстрый UI при плохом соединении) ---
+function cacheQueue() {
+    try {
+        localStorage.setItem(QUEUE_CACHE_KEY, JSON.stringify({
+            queue: localQueue,
+            current_index: localCurrentIndex,
+            saved_at: Date.now()
+        }));
+    } catch (_) {}
+}
+function loadCachedQueue() {
+    try {
+        const data = JSON.parse(localStorage.getItem(QUEUE_CACHE_KEY) || 'null');
+        if (data && Array.isArray(data.queue) && !localQueue.length) {
+            localQueue = data.queue;
+            localCurrentIndex = Number.isInteger(data.current_index) ? data.current_index : -1;
+            renderQueue();
+        }
+    } catch (_) {}
+}
+
 // --- WebSocket ---
 function connectWS() {
     if (ws && ws.readyState === WebSocket.OPEN) return;
     ws = new WebSocket(WS_URL);
 
     ws.onopen = () => {
+        reconnectAttempts = 0;
         setStatus("🟢 Подключено");
         if (reconnectTimer) { clearTimeout(reconnectTimer); reconnectTimer = null; }
+        showToast("Соединение восстановлено", 1400);
     };
     ws.onclose = () => {
-        setStatus("🔴 Отключено");
+        setStatus("🟠 Переподключение…");
         if (!reconnectTimer) {
-            reconnectTimer = setTimeout(() => { reconnectTimer = null; connectWS(); }, 3000);
+            const delay = Math.min(15000, 1500 * Math.pow(1.6, reconnectAttempts++));
+            reconnectTimer = setTimeout(() => { reconnectTimer = null; connectWS(); }, delay);
         }
     };
     ws.onerror = () => setStatus("⚠️ Ошибка");
@@ -166,14 +194,23 @@ function connectWS() {
         if (msg.type === "full_state") {
             localQueue = msg.queue || [];
             localCurrentIndex = msg.current_index ?? -1;
+            repeatMode = msg.repeat_mode || 'off';
+            shuffleMode = !!msg.shuffle;
+            cacheQueue();
             renderQueue();
+            updateModeButtons();
             if (msg.track) {
                 loadTrackState(msg.track, msg.index, msg.current_time, msg.is_playing);
             }
         } else if (msg.type === "queue_update") {
             localQueue = msg.queue || [];
             localCurrentIndex = msg.current_index ?? -1;
+            cacheQueue();
             renderQueue();
+        } else if (msg.type === "room_settings") {
+            repeatMode = msg.repeat_mode || 'off';
+            shuffleMode = !!msg.shuffle;
+            updateModeButtons();
         } else if (msg.type === "play_track") {
             playTrackFromQueue(msg.track, msg.index, msg.time || 0);
         } else if (msg.type === "play") {
@@ -664,6 +701,34 @@ function togglePlay() {
 function nextTrack() { send({ type: "next_track" }); }
 function prevTrack() { send({ type: "prev_track" }); }
 
+function cycleRepeat() {
+    const modes = ['off', 'all', 'one'];
+    const next = modes[(modes.indexOf(repeatMode) + 1) % modes.length];
+    repeatMode = next;
+    updateModeButtons();
+    send({ type: 'set_repeat', mode: next });
+    showToast(next === 'off' ? '🔁 Повтор: выкл.' : next === 'all' ? '🔁 Повтор очереди' : '🔂 Повтор трека');
+}
+function toggleShuffle() {
+    shuffleMode = !shuffleMode;
+    updateModeButtons();
+    send({ type: 'set_shuffle', enabled: shuffleMode });
+    showToast(shuffleMode ? '🔀 Перемешивание включено' : '🔀 Перемешивание выключено');
+}
+function updateModeButtons() {
+    const r = document.getElementById('repeatBtn');
+    const sh = document.getElementById('shuffleBtn');
+    if (r) {
+        r.classList.toggle('active', repeatMode !== 'off');
+        r.title = repeatMode === 'one' ? 'Повтор трека' : repeatMode === 'all' ? 'Повтор очереди' : 'Повтор выключен';
+        r.innerHTML = repeatMode === 'one' ? '🔂' : '🔁';
+    }
+    if (sh) {
+        sh.classList.toggle('active', shuffleMode);
+        sh.title = shuffleMode ? 'Выключить перемешивание' : 'Перемешать следующую песню';
+    }
+}
+
 // --- Мини-режим ---
 function toggleCollapse() {
     const player = document.getElementById("player");
@@ -836,6 +901,14 @@ document.addEventListener("keydown", (e) => {
             e.preventDefault();
             toggleCollapse();
             break;
+        case "KeyR":
+            e.preventDefault();
+            cycleRepeat();
+            break;
+        case "KeyS":
+            e.preventDefault();
+            toggleShuffle();
+            break;
         case "ArrowUp":
             e.preventDefault();
             audio.volume = Math.min(1, audio.volume + 0.1);
@@ -855,11 +928,13 @@ document.addEventListener("keydown", (e) => {
 // --- Подсказка горячих клавиш ---
 const hint = document.createElement("div");
 hint.className = "kbd-hint";
-hint.innerHTML = "⌨ Space · ← → · M · L · C · ↑ ↓";
+hint.innerHTML = "⌨ Space · ← → · M · L · C · R · S · ↑ ↓";
 document.body.appendChild(hint);
 
 // --- Инициализация ---
 applyVolumeSettings();
+loadCachedQueue();
+updateModeButtons();
 updateUserNameLabel();
 renderLibrary();
 connectWS();
